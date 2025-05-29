@@ -1,0 +1,23 @@
+WReg reg17 1
+WReg reg18 1
+WReg reg0 0
+WReg reg1 1
+WReg reg2 2
+WReg reg3 3
+WReg reg4 4
+WReg reg5 5
+SEARCH reg17 reg18 reg0 3
+SEARCH_S reg6
+SEARCH reg17 reg18 reg1 3
+SEARCH_S reg6
+SEARCH reg17 reg18 reg2 3
+SEARCH_S reg6
+SEARCH reg17 reg18 reg2 3
+SEARCH_S reg6
+SEARCH reg17 reg18 reg2 3
+SEARCH_S reg6
+SEARCH reg17 reg18 reg3 3
+SEARCH_S reg6
+SEARCH reg17 reg18 reg4 1 
+SEARCH reg17 reg18 reg5 1
+STALL 1

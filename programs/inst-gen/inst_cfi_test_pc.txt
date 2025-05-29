@@ -1,0 +1,35 @@
+WReg reg17 1
+WReg reg18 1
+FIFO_INPUT 0 0
+STALL 1
+WReg reg16 0
+DO_UNTIL 6 60 0 0 1  //**
+SEARCH_RST
+R_FIFO reg0
+R_FIFO reg1
+R_FIFO reg2
+R_FIFO reg3
+R_FIFO reg4
+R_FIFO reg5
+R_FIFO reg6
+R_FIFO reg7
+R_FIFO reg8
+R_FIFO reg9
+R_FIFO reg10
+R_FIFO reg11
+R_FIFO reg12
+R_FIFO reg13
+R_FIFO reg14
+R_FIFO reg15
+R_FIFO reg16
+R_FIFO reg17
+R_FIFO reg18
+R_FIFO reg19
+R_FIFO reg20
+R_FIFO reg21
+R_FIFO reg22
+R_FIFO reg23
+R_FIFO reg24
+R_FIFO reg25
+R_FIFO reg26
+JUMP 22

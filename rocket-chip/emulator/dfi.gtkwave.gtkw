@@ -1,0 +1,137 @@
+[*]
+[*] GTKWave Analyzer v3.3.66 (w)1999-2015 BSI
+[*] Wed Nov 16 08:20:27 2022
+[*]
+[dumpfile] "/home/wxrqw/rocket/freedom-configsty/rocket-chip/emulator/test.vcd"
+[dumpfile_mtime] "Wed Nov 16 08:16:31 2022"
+[dumpfile_size] 3530228694
+[savefile] "/home/wxrqw/rocket/freedom-configsty/rocket-chip/emulator/dfi.gtkwave.gtkw"
+[timestart] 464688
+[size] 1650 895
+[pos] -1 -1
+*-3.329494 464695 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] TOP.
+[treeopen] TOP.TestHarness.
+[treeopen] TOP.TestHarness.dut.
+[treeopen] TOP.TestHarness.dut.tile.
+[treeopen] TOP.TestHarness.dut.tile.accumulator.
+[treeopen] TOP.TestHarness.dut.tile.accumulator.co_core.
+[treeopen] TOP.TestHarness.dut.tile.core.
+[sst_width] 337
+[signals_width] 333
+[sst_expanded] 1
+[sst_vpaned_height] 318
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_32[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_33[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_34[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_35[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_36[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_37[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_38[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_39[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_40[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_41[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_42[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_43[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_44[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_45[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_46[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_47[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_48[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_49[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_50[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_51[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_52[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_7[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_8[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_31[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_12[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_13[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_17[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_18[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_19[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_51[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_52[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_53[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_56[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_57[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_59[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_61[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_48[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_49[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_50[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_0[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_1[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_2[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_9[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_10[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.rf_clean
+TOP.TestHarness.dut.tile.accumulator.co_core.key_record.io_rst
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_w_en
+TOP.TestHarness.dut.tile.accumulator.co_core.stalled_r
+TOP.TestHarness.dut.tile.accumulator.co_core.decode_invalid
+@24
+TOP.TestHarness.dut.tile.accumulator.co_core.pc[7:0]
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.inst[63:0]
+@29
+TOP.TestHarness.dut.tile.accumulator.co_core.rcache0_io_hit
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.SEARCH_STATE[7:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.load_wait_search
+TOP.TestHarness.dut.tile.accumulator.co_core.search_wait_search
+TOP.TestHarness.dut.tile.accumulator.co_core.store_wait_search
+TOP.TestHarness.dut.tile.accumulator.co_core.waiting_store
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.load_2_buf_len[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.res_len[9:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.search
+TOP.TestHarness.dut.tile.accumulator.co_core.search_hit
+TOP.TestHarness.dut.tile.accumulator.co_core.search_to_hit
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.search_key[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.search_value[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.rocc_done
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo_wide_io_enq_ready
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo_wide_io_enq_valid
+TOP.TestHarness.dut.tile.accumulator.co_core.debugout
+TOP.TestHarness.dut.tile.accumulator.co_core.maintail
+TOP.TestHarness.dut.tile.core.ctrl_stalld
+TOP.TestHarness.dut.tile.accumulator.co_core.io_info_cmd_valid
+TOP.TestHarness.dut.tile.accumulator.co_core.io_info_cmd_ready
+TOP.TestHarness.dut.tile.accumulator.co_core.io_main_core_stall
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo__io_full
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo_wide_io_deq_valid
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo_wide_io_deq_ready
+TOP.TestHarness.dut.tile.accumulator.io_cmd_valid
+TOP.TestHarness.dut.tile.accumulator.io_cmd_ready
+TOP.TestHarness.dut.tile.accumulator.co_core.io_info_cmd_valid
+TOP.TestHarness.dut.tile.accumulator.co_core.io_info_cmd_ready
+TOP.TestHarness.dut.tile.accumulator.cus_sig
+TOP.TestHarness.dut.tile.accumulator.co_core.maintail
+TOP.TestHarness.dut.tile.accumulator.co_core.init_rocc_stall
+TOP.TestHarness.dut.tile.accumulator.co_core.dfi_v
+TOP.TestHarness.dut.tile.accumulator.co_core.dfi_lib_v
+TOP.TestHarness.dut.tile.accumulator.co_core.io_init_rocc
+@24
+TOP.TestHarness.dut.tile.accumulator.co_core.funcmax[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo__io_read
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo_network_narrow[56:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo_network_wide[56:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo_narrow_en
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo_narrow_valid
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo__io_datain[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo_wide_en
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo_wide_valid
+[pattern_trace] 1
+[pattern_trace] 0

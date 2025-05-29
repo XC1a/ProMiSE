@@ -1,0 +1,68 @@
+WReg reg17 1
+WReg reg18 1
+WReg reg19 1
+FIFO_INPUT 1 0
+FIFO_INPUT 2 1
+STALL 1
+DO_UNTIL 7 90 5 0 1        //**
+R_FIFO reg31 1
+IF reg31 0 20 0 0       //** is lib func, jump to lib check
+M_DIS reg31 reg48 0x18 15 15 7 15 0 0 0 0    //reg51 id,reg52 r/w
+BIT_AND reg31 0x7ffffff reg0 1           //reg0 addr
+IF reg52 0 17 0 0     //** reg52==0 store, jump to write rdt
+LRS reg0 0x2 0x1 reg0 0 //----------begin to read check
+LOAD reg31 reg18 reg0 2 1 cache0      //reg31 checkid (RDT)
+IF reg31 0 16 0 0
+SEARCH reg17 reg19 reg51 1 reg31 reg28 1
+IF reg8 1 41 7 1         //**jump back to lib read
+LRS reg0 0x2 0x1 reg0 0  //----------begin to write rdt
+STORE reg51 reg18 reg0 2 1 cache0 1
+IF reg7 1 52 7 1    //jumo to lib write
+R_FIFO_WIDE 0x1f  //reg56 write addr, reg57 read addr, reg58 len, reg59 retaddr, reg60 infocomplex
+BIT_AND reg56 0x7ffffff reg0 1           //reg0 write addr
+BIT_AND reg57 0x7ffffff reg1 1           //reg1 read addr
+ADD reg0 0x0 reg11 1
+M_DIS reg60 reg48 0x1f 15 0 0 0 0 0 0 0    //reg48 id,reg49 lib,reg50 call/ret,reg51 w,reg52 r
+IF reg50 1 27 61 1        //** call
+JUMP 28              //**
+IF reg49 0 58 0 0          //** lib
+BIT_AND reg56 0x3 reg56 1           //reg0 write addr
+ADD reg58 reg56 reg58 0    
+ADD reg58 0x3 reg58 1    //** len ceil
+RL reg58 0x2 reg2 1    //length ceil up to reg2
+IF reg2 0 7 0 0
+ADD reg1 0x0 reg0 1   //** read addr to reg0
+ADD reg51 0x0 reg7 1   //** lib w to reg7
+ADD reg52 0x0 reg8 1   //** lib r to reg8
+ADD reg48 0x0 reg51 1   //** lib to reg51
+IF reg50 0 58 0 0       //** not call, jump to ret check, 0 is call
+IF reg52 0 48 0 0      //** no read, jump to write rdt
+WReg reg9 0          
+JUMP 12              //** ------------lib read jump to read check inst
+SEARCH_RST
+ADD reg9 0x1 reg9 1
+CMP reg9 reg2 reg10 0 0
+ADD reg1 0x4 reg1 1  //address + 4
+ADD reg1 0x0 reg0 1  
+IF reg10 1 48 0 0      //** read check done, jump to lib write rdt
+JUMP 12              //** read check not done, go on jump to read check
+IF reg7 0 7 0 0         //** no write, jump back to begin
+WReg reg9 0          //-------------lib write
+ADD reg11 0x0 reg0 1
+JUMP 17              //** jump to write check
+ADD reg9 0x1 reg9 1
+CMP reg9 reg2 reg10 0 0
+ADD reg11 0x4 reg11 1  //address + 4
+ADD reg11 0x0 reg0 1  
+IF reg10 1 7 0 0        //** write check done, jump back to begin
+JUMP 17              //** jump to write check
+BIT_AND reg59 0x7ffffff reg0 1  //-------------ret check
+ADD reg51 0xffff reg51 1
+JUMP 17
+BIT_AND reg59 0x7ffffff reg0 1  //-------------ret check
+LRS reg0 0x2 0x1 reg0 0 //----------begin to read check
+LOAD reg31 reg18 reg0 2 1 cache0      //reg31 checkid (RDT)
+IF reg31 0 7 0 0
+CMP reg31 0xffff reg10 1 2
+ADD reg10 reg20 reg20 0
+JUMP 7              //** 

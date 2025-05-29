@@ -1,0 +1,169 @@
+bound: 80001048,80002c80
+function: _start at section .text.init
+start at 80000000 end at 8000011c
+comment: <_start+0x58>|# 80001000 <tohost>|<_start+0x4c>|# 800000e8 <_start+0xe8>|# 80000120 <trap_entry>|# 800036b8 <__global_pointer$>|# 80002f7f <_end+0x3f>|<_start+0x10a>|<_init>
+function: trap_entry at section .text.init
+start at 80000120 end at 800001be
+comment: <handle_trap>
+function: add at section .text
+start at 80001048 end at 8000106e
+comment: 
+branch: start 80001048 source 8000106e to [] fix 0 ind 1 remark n return 1
+function: DFG_init at section .text
+start at 80001070 end at 8000119a
+comment: # 80002ec0 <i>|<DFG_init+0x4c>|# 80002ec0 <i>|# 80002ec0 <i>|# 80002ec0 <i>|# 80002ec0 <i>|<DFG_init+0x1c>|# 80002ca8 <atol+0x102>|# 80002cb0 <atol+0x10a>|# 80002cb8 <atol+0x112>|# 80002cc0 <atol+0x11a>|# 80002cc8 <atol+0x122>|# 80002cd0 <atol+0x12a>|# 80002cd8 <atol+0x132>|# 80002ce0 <atol+0x13a>
+branch: start 80001070 source 8000119a to [] fix 0 ind 1 remark n return 1
+function: CFG_init at section .text
+start at 8000119c end at 80001678
+comment: # 10000209 <_tbss_end+0x10000185>
+branch: start 8000119c source 80001678 to [] fix 0 ind 1 remark n return 1
+function: inst at section .text
+start at 8000167a end at 80001968
+comment: # 4000f1ca <_tbss_end+0x4000f146>|# 80002ce8 <atol+0x142>|# 7c3090 <_tbss_end+0x7c300c>|# 702090 <_tbss_end+0x70200c>|# 704090 <_tbss_end+0x70400c>|# 3012456 <_tbss_end+0x30123d2>|# 80002cf0 <atol+0x14a>|# 581110 <_tbss_end+0x58108c>|# 3141814 <_tbss_end+0x3141790>|# 9c0150 <_tbss_end+0x9c00cc>|# 10189 <_tbss_end+0x10105>|# 6141814 <_tbss_end+0x6141790>|# 1c1150 <_tbss_end+0x1c10cc>|# 80002cf8 <atol+0x152>|# 3012456 <_tbss_end+0x30123d2>|# 3c4090 <_tbss_end+0x3c400c>|# 1c01d0 <_tbss_end+0x1c014c>|# 80002d00 <atol+0x15a>|# 80002d08 <atol+0x162>|# 2249 <_tbss_end+0x21c5>|# 91411d4 <_tbss_end+0x9141150>|# 9c0150 <_tbss_end+0x9c00cc>|# 80002d10 <atol+0x16a>|# bc614e <_tbss_end+0xbc60ca>
+branch: start 8000167a source 80001968 to [] fix 0 ind 1 remark n return 1
+function: foo at section .text
+start at 8000196a end at 80001998
+comment: 
+branch: start 8000196a source 80001998 to [] fix 0 ind 1 remark n return 1
+function: main at section .text
+start at 8000199a end at 80001ab6
+comment: # ffffffffffffcfc0 <__global_pointer$+0xffffffff7fff9908>|# 80002c88 <atol+0xe2>|<printf>|# ffffffffffffd7e8 <__global_pointer$+0xffffffff7fffa130>|<memset>|# ffffffffffffcfe8 <__global_pointer$+0xffffffff7fff9930>|# 800 <_tbss_end+0x77c>|<memset>|# ffffffffffffc7e8 <__global_pointer$+0xffffffff7fff9130>|# 800 <_tbss_end+0x77c>|<memset>|<CFG_init>|# ffffffffffffd300 <__global_pointer$+0xffffffff7fff9c48>|# fffffffffffff7e8 <__global_pointer$+0xffffffff7fffc130>|<inst>|<add>|# 80001048 <add>|# 80002c98 <atol+0xf2>|<printf>|# 3040 <_tbss_end+0x2fbc>
+branch: start 8000199a source 80001a80 to [2147487816] fix 0 ind 1 remark n return 0
+branch: start 80001a82 source 80001ab6 to [] fix 0 ind 1 remark n return 1
+function: printArray at section .text
+start at 80001ab8 end at 80001ad2
+comment: 
+branch: start 80001ab8 source 80001ad2 to [] fix 0 ind 1 remark n return 1
+function: printDoubleArray at section .text
+start at 80001ad4 end at 80001aee
+comment: 
+branch: start 80001ad4 source 80001aee to [] fix 0 ind 1 remark n return 1
+function: verify at section .text
+start at 80001af0 end at 80001bf8
+comment: <verify+0xa4>|<verify+0x80>|<verify+0x102>|<verify+0x9a>|<verify+0x102>|<verify+0x1a>|<verify+0x100>|<verify+0x100>|<verify+0x102>
+branch: start 80001af0 source 80001bf8 to [] fix 0 ind 1 remark n return 1
+function: verifyDouble at section .text
+start at 80001bfa end at 80001d1a
+comment: <verifyDouble+0xc0>|<verifyDouble+0xb6>|<verifyDouble+0x11a>|<verifyDouble+0x1a>|<verifyDouble+0x118>|<verifyDouble+0x118>|<verifyDouble+0x11a>
+branch: start 80001bfa source 80001d1a to [] fix 0 ind 1 remark n return 1
+function: barrier at section .text
+start at 80001d1c end at 80001d94
+comment: # 0 <_tdata_begin>|# 0 <_tdata_begin>|# 80002f20 <count.2750>|<barrier+0x5a>|# 80002f20 <count.2750>|# 0 <_tdata_begin>|# 80002f24 <sense.2749>|<barrier+0x6e>|# 80002f24 <sense.2749>|# 0 <_tdata_begin>|<barrier+0x5c>
+branch: start 80001d1c source 80001d94 to [] fix 0 ind 1 remark n return 1
+function: lfsr at section .text
+start at 80001d96 end at 80001dca
+comment: 
+branch: start 80001d96 source 80001dca to [] fix 0 ind 1 remark n return 1
+function: syscall at section .text
+start at 80001dcc end at 80001e40
+comment: # 80001000 <tohost>|# 80001040 <fromhost>|<syscall+0x50>|# 80001040 <fromhost>
+branch: start 80001dcc source 80001e40 to [] fix 0 ind 1 remark n return 1
+function: setStats at section .text
+start at 80001e42 end at 80001f48
+comment: <setStats+0x10>|<setStats+0x6a>|# 80002f00 <counters>|# 80002f10 <counter_names>|# 80002d18 <atol+0x172>|# 80002f00 <counters>|<setStats+0x88>|<setStats+0xe2>|# 80002f00 <counters>|# 80002f10 <counter_names>|# 80002d20 <atol+0x17a>|# 80002f00 <counters>
+branch: start 80001e42 source 80001f48 to [] fix 0 ind 1 remark n return 1
+function: tohost_exit at section .text
+start at 80001f4a end at 80001f68
+comment: # 80001000 <tohost>|<tohost_exit+0x1e>
+function: handle_trap at section .text
+start at 80001f6a end at 80001f82
+comment: <tohost_exit>
+function: exit at section .text
+start at 80001f86 end at 80001f9a
+comment: <tohost_exit>
+function: abort at section .text
+start at 80001f9e end at 80001faa
+comment: <exit>
+function: printstr at section .text
+start at 80001fae end at 80001fe2
+comment: <strlen>|<syscall>
+branch: start 80001fae source 80001fe2 to [] fix 0 ind 1 remark n return 1
+function: thread_entry at section .text
+start at 80001fe4 end at 80002030
+comment: <thread_entry+0x14>|# 80002d30 <atol+0x18a>|<printstr>
+branch: start 80001fe4 source 80002006 to [] fix 0 ind 1 remark n return 1
+branch: start 80002008 source 80002030 to [] fix 0 ind 1 remark n return 1
+function: init_tls at section .text
+start at 80002032 end at 80002086
+comment: # 80002f40 <_end>|<memcpy>|# 84 <_tbss_end>|<memset>
+branch: start 80002032 source 80002086 to [] fix 0 ind 1 remark n return 1
+function: _init at section .text
+start at 80002088 end at 8000215e
+comment: <init_tls>|<thread_entry>|<main>|<_init+0xb4>|# 80002f00 <counters>|<_init+0xaa>|# 80002f10 <counter_names>|# 80002f00 <counters>|# 80002d48 <atol+0x1a2>|<sprintf>|<_init+0x56>|<_init+0xd0>|<printstr>|<exit>
+function: putchar at section .text
+start at 80002162 end at 800021d2
+comment: # 80 <buflen.2845>|# 80 <buflen.2845>|# 40 <buf.2844>|<putchar+0x4c>|# 80 <buflen.2845>|<putchar+0x66>|# 40 <buf.2844>|# 80 <buflen.2845>|<syscall>|# 80 <buflen.2845>
+branch: start 80002162 source 800021d2 to [] fix 0 ind 1 remark n return 1
+function: printhex at section .text
+start at 800021d4 end at 80002260
+comment: <printhex+0x68>|<printhex+0x34>|<printhex+0x38>|<printhex+0x12>|<printstr>
+branch: start 800021d4 source 80002260 to [] fix 0 ind 1 remark n return 1
+function: printnum at section .text
+start at 80002262 end at 80002360
+comment: <printnum+0x76>|<printnum+0x30>|<printnum+0x8a>|<printnum+0x7a>|<printnum+0xe6>|<printnum+0xd0>|<printnum+0xd4>|<printnum+0xa2>
+branch: start 80002262 source 800022ea to [] fix 0 ind 1 remark n return 0
+branch: start 800022ec source 80002346 to [] fix 0 ind 1 remark n return 0
+branch: start 80002348 source 80002360 to [] fix 0 ind 1 remark n return 1
+function: getuint at section .text
+start at 80002362 end at 800023cc
+comment: <getuint+0x32>|<getuint+0x64>|<getuint+0x4e>|<getuint+0x64>
+branch: start 80002362 source 800023cc to [] fix 0 ind 1 remark n return 1
+function: getint at section .text
+start at 800023ce end at 80002434
+comment: <getint+0x32>|<getint+0x60>|<getint+0x4e>|<getint+0x60>
+branch: start 800023ce source 80002434 to [] fix 0 ind 1 remark n return 1
+function: vprintfmt at section .text
+start at 80002436 end at 80002792
+comment: <vprintfmt+0x38>|<vprintfmt+0x350>|<vprintfmt+0x1e>|<vprintfmt+0x336>|# 80002d60 <atol+0x1ba>|# 80002d60 <atol+0x1ba>|<vprintfmt+0x7c>|<vprintfmt+0x7c>|<vprintfmt+0x154>|<vprintfmt+0x154>|<vprintfmt+0xde>|<vprintfmt+0x156>|<vprintfmt+0x7c>|<vprintfmt+0x7c>|<vprintfmt+0x7c>|<vprintfmt+0x7c>|<vprintfmt+0x7c>|<vprintfmt+0x7c>|<vprintfmt+0x34e>|<vprintfmt+0x1b4>|# 80002d58 <atol+0x1b2>|<vprintfmt+0x22e>|<vprintfmt+0x22e>|<strnlen>|<vprintfmt+0x20a>|<vprintfmt+0x1ee>|<vprintfmt+0x22e>|<vprintfmt+0x270>|<vprintfmt+0x216>|<vprintfmt+0x216>|<vprintfmt+0x270>|<vprintfmt+0x258>|<vprintfmt+0x34e>|<getint>|<vprintfmt+0x2b4>|<vprintfmt+0x308>|<vprintfmt+0x2f4>|<vprintfmt+0x2f4>|<getuint>|<printnum>|<vprintfmt+0x34e>|<vprintfmt+0x34e>|<vprintfmt+0x38>
+branch: start 80002436 source 8000246c to [] fix 0 ind 1 remark n return 0
+branch: start 8000246e source 800024fa to [] fix 0 ind 1 remark n return 0
+branch: start 800024fc source 800025ca to [] fix 0 ind 1 remark n return 0
+branch: start 800025cc source 80002634 to [] fix 0 ind 1 remark n return 0
+branch: start 80002636 source 80002656 to [] fix 0 ind 1 remark n return 0
+branch: start 80002658 source 8000269a to [] fix 0 ind 1 remark n return 0
+branch: start 8000269c source 800026dc to [] fix 0 ind 1 remark n return 0
+branch: start 800026de source 80002714 to [] fix 0 ind 1 remark n return 0
+branch: start 80002716 source 80002722 to [] fix 0 ind 1 remark n return 0
+branch: start 80002724 source 80002768 to [] fix 0 ind 1 remark n return 0
+branch: start 8000276a source 80002778 to [] fix 0 ind 1 remark n return 0
+branch: start 8000277a source 80002792 to [] fix 0 ind 1 remark n return 1
+function: printf at section .text
+start at 80002794 end at 800027e0
+comment: # 80002162 <putchar>|<vprintfmt>
+branch: start 80002794 source 800027e0 to [] fix 0 ind 1 remark n return 1
+function: sprintf_putch.2959 at section .text
+start at 800027e2 end at 80002826
+comment: 
+branch: start 800027e2 source 80002826 to [] fix 0 ind 1 remark n return 1
+function: sprintf at section .text
+start at 80002828 end at 800028da
+comment: # 800027e2 <sprintf_putch.2959>|<vprintfmt>
+branch: start 80002828 source 800028da to [] fix 0 ind 1 remark n return 1
+function: memcpy at section .text
+start at 800028dc end at 80002992
+comment: <memcpy+0x68>|<memcpy+0x54>|<memcpy+0x38>|<memcpy+0xac>|<memcpy+0x9a>|<memcpy+0x7a>
+branch: start 800028dc source 80002992 to [] fix 0 ind 1 remark n return 1
+function: memset at section .text
+start at 80002994 end at 80002a60
+comment: <memset+0x8e>|<memset+0x7a>|<memset+0x68>|<memset+0xc2>|<memset+0xb0>|<memset+0x98>
+branch: start 80002994 source 80002a60 to [] fix 0 ind 1 remark n return 1
+function: strlen at section .text
+start at 80002a62 end at 80002a9c
+comment: <strlen+0x1e>|<strlen+0x14>
+branch: start 80002a62 source 80002a9c to [] fix 0 ind 1 remark n return 1
+function: strnlen at section .text
+start at 80002a9e end at 80002aea
+comment: <strnlen+0x22>|<strnlen+0x3a>|<strnlen+0x18>
+branch: start 80002a9e source 80002aea to [] fix 0 ind 1 remark n return 1
+function: strcmp at section .text
+start at 80002aec end at 80002b5a
+comment: <strcmp+0x54>|<strcmp+0xe>
+branch: start 80002aec source 80002b5a to [] fix 0 ind 1 remark n return 1
+function: strcpy at section .text
+start at 80002b5c end at 80002ba4
+comment: <strcpy+0x18>
+branch: start 80002b5c source 80002ba4 to [] fix 0 ind 1 remark n return 1
+function: atol at section .text
+start at 80002ba6 end at 80002c80
+comment: <atol+0x1e>|<atol+0x14>|<atol+0x54>|<atol+0xb4>|<atol+0xb4>|<atol+0x80>|<atol+0xd0>|<atol+0xd4>
+branch: start 80002ba6 source 80002c80 to [] fix 0 ind 1 remark n return 1

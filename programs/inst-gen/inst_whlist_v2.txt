@@ -1,0 +1,29 @@
+FIFO_INPUT 1 0x100000001ffffcf
+STALL 1
+R_FIFO_WIDE 0x3f 1 //reg56 memaddr , reg57 write addr, reg58 read addr, reg59 len, reg60 stack , reg61 ID+infocomplex
+M_DIS reg61 reg48 0x7f 15 0 0 0 0 0 0 0    //reg48 id,reg49 call,reg50 w,reg51 r, reg52 1, reg53 IDLE ,reg54 lib
+IF reg52 1 15 0 0       //** is lib func, jump to lib check
+BIT_AND reg56 0xffffffffff reg0 1           //reg0 addr
+IF reg49 0 13 0 0
+CMP reg0 reg17 reg28 0 1
+CMP reg0 reg18 reg29 0 2
+ADD reg28 reg29 reg28 0
+IF reg28 2 11 2 1
+ADD reg20 0x1 reg20 1
+JUMP 2
+MINUS reg0 0x1 reg17 1
+JUMP 2
+BIT_AND reg58 0xffffffffff reg1 1           //reg1 read addr
+IF reg54 0 26 0 0          //** call
+CMP reg1 reg17 reg28 0 1
+CMP reg1 reg18 reg29 0 2
+ADD reg28 reg29 reg28 0
+IF reg28 2 21 22 1
+ADD reg20 0x1 reg20 1
+ADD reg9 0x1 reg9 1
+ADD reg1 0x1 reg1 1
+CMP reg9 reg59 reg10 0 0
+IF reg10 1 2 17 1
+ADD reg48 reg17 reg18 0
+ADD reg18 0x2 reg18 1
+JUMP 2           //** 

@@ -1,0 +1,33 @@
+WReg reg17 1
+WReg reg18 1
+WReg reg19 32
+WReg reg20 2
+WReg reg21 0
+WReg reg22 0xffffffff
+WReg reg23 3
+WReg reg0 0x1ffffff
+WReg reg1 0xffff
+WReg reg2 40
+WReg reg3 56
+FIFO_INPUT 1
+WReg reg16 0
+DO_UNTIL 14 32 12 0 1
+R_FIFO reg4
+RL reg4 reg2 reg5
+BIT_AND reg5 reg1 reg5
+RL reg4 reg3 reg6
+BIT_AND reg4 reg0 reg4
+IF reg6 0 32
+SL reg5 reg23 reg5
+LOAD reg7 reg18 reg4 0
+LOAD reg8 reg17 reg5 0
+RL reg8 reg19 reg9
+BIT_AND reg8 reg22 reg8
+DO_UNTIL 26 29 30 5 1
+LOAD reg10 reg17 reg8 2
+AC reg10 reg10 reg7 reg24 reg24 reg24 reg16 1 0
+ADD reg8 reg20 reg8
+CMP reg8 reg9 reg21
+WReg reg21 0
+DO_UNTIL 12 32 12 0 1
+STORE reg5 reg18 reg4 0

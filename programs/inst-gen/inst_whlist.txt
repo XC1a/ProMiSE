@@ -1,0 +1,32 @@
+WReg reg17 1
+FIFO_INPUT 0 0x100000000400007
+FIFO_INPUT 1 0x040000001ffffc0
+STALL 1
+DO_UNTIL 5 90 5 0 1        //**
+R_FIFO reg31 0
+IF reg31 0 18 0 0       //** is lib func, jump to lib check
+M_DIS reg31 reg48 0x28 15 15 7 0 6 15 0 0    //reg51 rw,reg53 id
+BIT_AND reg31 0xffffffffff reg0 1           //reg0 addr
+IF reg51 0 16 0 0     //** reg51==0 store, jump to write rdt
+CMP reg0 reg12 reg18 0 1
+CMP reg0 reg13 reg19 0 2
+ADD reg18 reg19 reg18 0
+IF reg18 2 15 0 0
+ADD reg20 0x1 reg20 1
+IF reg49 1 24 5 0
+MINUS reg0 0x1 reg12 1
+JUMP 5
+R_FIFO_WIDE 0x1f  //reg56 write addr, reg57 read addr, reg58 len, reg59 retaddr, reg60 infocomplex
+BIT_AND reg57 0xffffffffff reg0 1           //reg1 read addr
+M_DIS reg60 reg48 0x1f 15 0 0 0 0 0 0 0    //reg48 id,reg49 lib,reg50 call/ret,reg51 w,reg52 r
+IF reg49 0 28 0 0        //** call
+WReg reg9 0          
+JUMP 10
+ADD reg0 0x1 reg0 1  //address + 4
+ADD reg9 0x1 reg9 1
+CMP reg9 reg58 reg10 0 0
+IF reg10 1 30 10 1     //** read check done, jump to lib write rdt
+ADD reg48 reg12 reg13 0          //reg0 addr
+ADD reg13 0x2 reg13 1
+WReg reg49 0
+JUMP 5             

@@ -1,0 +1,395 @@
+Copyright 1986-2018 Xilinx, Inc. All Rights Reserved.
+------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2018.3 (lin64) Build 2405991 Thu Dec  6 23:36:41 MST 2018
+| Date         : Tue Dec  6 00:25:16 2022
+| Host         : ubuntu running 64-bit Ubuntu 16.04.7 LTS
+| Command      : report_clocks -file /home/wxrqw/rocket/freedom-configsty/builds/vc707-u500devkit/obj/report/clocks.txt
+| Design       : VC707PCIeShell
+| Device       : 7vx485t-ffg1761
+| Speed File   : -2  PRODUCTION 1.12 2014-09-11
+------------------------------------------------------------------------------------------------------------------------
+
+Clock Report
+
+
+Attributes
+  P: Propagated
+  G: Generated
+  A: Auto-derived
+  R: Renamed
+  V: Virtual
+  I: Inverted
+  S: Pin phase-shifted with Latency mode
+
+Clock                                                                                                                                                      Period(ns)  Waveform(ns)    Attributes  Sources
+sys_clock                                                                                                                                                  5.000       {0.000 2.500}   P           {sys_clock_p}
+JTCK                                                                                                                                                       100.000     {0.000 50.000}  P           {jtag_jtag_TCK}
+clkfbout_corePLL                                                                                                                                           5.000       {0.000 2.500}   P,G,A       {corePLL/inst/mmcm_adv_inst/CLKFBOUT}
+clk_out1_corePLL                                                                                                                                           20.000      {0.000 10.000}  P,G,A       {corePLL/inst/mmcm_adv_inst/CLKOUT0}
+pll_clkfbout                                                                                                                                               5.000       {0.000 2.500}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKFBOUT}
+freq_refclk                                                                                                                                                1.250       {1.172 1.797}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKOUT0}
+mem_refclk                                                                                                                                                 1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKOUT1}
+sync_pulse                                                                                                                                                 20.000      {0.547 1.797}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKOUT2}
+pll_clk3_out                                                                                                                                               5.000       {0.000 2.500}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKOUT3}
+mmcm_clkfbout                                                                                                                                              5.000       {0.000 2.500}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_iodelay_ctrl/clk_ref_mmcm_gen.mmcm_i/CLKFBOUT}
+clk_ref_mmcm_400                                                                                                                                           2.500       {0.000 1.250}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_iodelay_ctrl/clk_ref_mmcm_gen.mmcm_i/CLKOUT1}
+u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/iserdes_clk  1.250       {1.172 1.797}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/ICLK}
+oserdes_clk                                                                                                                                                1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/OCLK}
+u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/iserdes_clk  1.250       {1.172 1.797}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/ICLK}
+oserdes_clk_1                                                                                                                                              1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLK}
+u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/iserdes_clk  1.250       {1.172 1.797}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/ICLK}
+oserdes_clk_2                                                                                                                                              1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLK}
+u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/iserdes_clk  1.250       {1.172 1.797}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/ICLK}
+oserdes_clk_3                                                                                                                                              1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLK}
+oserdes_clk_4                                                                                                                                              1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLK}
+oserdes_clk_5                                                                                                                                              1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLK}
+oserdes_clk_6                                                                                                                                              1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLK}
+u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/iserdes_clk  1.250       {1.172 1.797}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/ICLK}
+oserdes_clk_7                                                                                                                                              1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/OCLK}
+u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/iserdes_clk  1.250       {1.172 1.797}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/ICLK}
+oserdes_clk_8                                                                                                                                              1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLK}
+u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/iserdes_clk  1.250       {1.172 1.797}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/ICLK}
+oserdes_clk_9                                                                                                                                              1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLK}
+u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/iserdes_clk  1.250       {1.172 1.797}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/ICLK}
+oserdes_clk_10                                                                                                                                             1.250       {0.000 0.625}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLK}
+clk_pll_i                                                                                                                                                  5.000       {0.000 2.500}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/gen_mmcm.mmcm_i/CLKFBOUT}
+mmcm_ps_clk_bufg_in                                                                                                                                        10.000      {0.000 5.000}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/gen_mmcm.mmcm_i/CLKOUT0}
+iserdes_clkdiv                                                                                                                                             2.500       {1.172 2.422}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/ICLKDIV}
+oserdes_clkdiv                                                                                                                                             2.500       {0.000 1.250}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/OCLKDIV}
+iserdes_clkdiv_1                                                                                                                                           2.500       {1.172 2.422}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/ICLKDIV}
+oserdes_clkdiv_1                                                                                                                                           2.500       {0.000 1.250}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLKDIV}
+iserdes_clkdiv_2                                                                                                                                           2.500       {1.172 2.422}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/ICLKDIV}
+oserdes_clkdiv_2                                                                                                                                           2.500       {0.000 1.250}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLKDIV}
+iserdes_clkdiv_3                                                                                                                                           2.500       {1.172 2.422}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/ICLKDIV}
+oserdes_clkdiv_3                                                                                                                                           2.500       {0.000 1.250}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLKDIV}
+oserdes_clkdiv_4                                                                                                                                           5.000       {0.000 2.500}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLKDIV}
+oserdes_clkdiv_5                                                                                                                                           5.000       {0.000 2.500}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLKDIV}
+oserdes_clkdiv_6                                                                                                                                           5.000       {0.000 2.500}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLKDIV}
+iserdes_clkdiv_4                                                                                                                                           2.500       {1.172 2.422}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/ICLKDIV}
+oserdes_clkdiv_7                                                                                                                                           2.500       {0.000 1.250}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/OCLKDIV}
+iserdes_clkdiv_5                                                                                                                                           2.500       {1.172 2.422}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/ICLKDIV}
+oserdes_clkdiv_8                                                                                                                                           2.500       {0.000 1.250}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLKDIV}
+iserdes_clkdiv_6                                                                                                                                           2.500       {1.172 2.422}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/ICLKDIV}
+oserdes_clkdiv_9                                                                                                                                           2.500       {0.000 1.250}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLKDIV}
+iserdes_clkdiv_7                                                                                                                                           2.500       {1.172 2.422}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/ICLKDIV}
+oserdes_clkdiv_10                                                                                                                                          2.500       {0.000 1.250}   P,G,A       {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLKDIV}
+
+
+====================================================
+Generated Clocks
+====================================================
+
+Generated Clock     : clkfbout_corePLL
+Master Source       : corePLL/inst/mmcm_adv_inst/CLKIN1
+Master Clock        : sys_clock
+Multiply By         : 1
+Generated Sources   : {corePLL/inst/mmcm_adv_inst/CLKFBOUT}
+
+Generated Clock     : clk_out1_corePLL
+Master Source       : corePLL/inst/mmcm_adv_inst/CLKIN1
+Master Clock        : sys_clock
+Edges               : {1 2 3}
+Edge Shifts(ns)     : {0.000 7.500 15.000}
+Generated Sources   : {corePLL/inst/mmcm_adv_inst/CLKOUT0}
+
+Generated Clock     : pll_clkfbout
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKIN1
+Master Clock        : sys_clock
+Multiply By         : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKFBOUT}
+
+Generated Clock     : freq_refclk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKIN1
+Master Clock        : sys_clock
+Edges               : {1 2 3}
+Edge Shifts(ns)     : {1.172 -0.703 -2.578}
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKOUT0}
+
+Generated Clock     : mem_refclk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKIN1
+Master Clock        : sys_clock
+Multiply By         : 4
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKOUT1}
+
+Generated Clock     : sync_pulse
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKIN1
+Master Clock        : sys_clock
+Edges               : {1 2 3}
+Edge Shifts(ns)     : {0.547 -0.703 15.547}
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKOUT2}
+
+Generated Clock     : pll_clk3_out
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKIN1
+Master Clock        : sys_clock
+Multiply By         : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKOUT3}
+
+Generated Clock     : mmcm_clkfbout
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_iodelay_ctrl/clk_ref_mmcm_gen.mmcm_i/CLKIN1
+Master Clock        : sys_clock
+Multiply By         : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_iodelay_ctrl/clk_ref_mmcm_gen.mmcm_i/CLKFBOUT}
+
+Generated Clock     : clk_ref_mmcm_400
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_iodelay_ctrl/clk_ref_mmcm_gen.mmcm_i/CLKIN1
+Master Clock        : sys_clock
+Multiply By         : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_iodelay_ctrl/clk_ref_mmcm_gen.mmcm_i/CLKOUT1}
+
+Generated Clock     : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/iserdes_clk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/FREQREFCLK
+Master Clock        : freq_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/ICLK}
+
+Generated Clock     : oserdes_clk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/OCLK}
+
+Generated Clock     : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/iserdes_clk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/FREQREFCLK
+Master Clock        : freq_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/ICLK}
+
+Generated Clock     : oserdes_clk_1
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLK}
+
+Generated Clock     : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/iserdes_clk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/FREQREFCLK
+Master Clock        : freq_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/ICLK}
+
+Generated Clock     : oserdes_clk_2
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLK}
+
+Generated Clock     : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/iserdes_clk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/FREQREFCLK
+Master Clock        : freq_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/ICLK}
+
+Generated Clock     : oserdes_clk_3
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLK}
+
+Generated Clock     : oserdes_clk_4
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLK}
+
+Generated Clock     : oserdes_clk_5
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLK}
+
+Generated Clock     : oserdes_clk_6
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLK}
+
+Generated Clock     : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/iserdes_clk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/FREQREFCLK
+Master Clock        : freq_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/ICLK}
+
+Generated Clock     : oserdes_clk_7
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/OCLK}
+
+Generated Clock     : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/iserdes_clk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/FREQREFCLK
+Master Clock        : freq_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/ICLK}
+
+Generated Clock     : oserdes_clk_8
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLK}
+
+Generated Clock     : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/iserdes_clk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/FREQREFCLK
+Master Clock        : freq_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/ICLK}
+
+Generated Clock     : oserdes_clk_9
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLK}
+
+Generated Clock     : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/iserdes_clk
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/FREQREFCLK
+Master Clock        : freq_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/ICLK}
+
+Generated Clock     : oserdes_clk_10
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/MEMREFCLK
+Master Clock        : mem_refclk
+Divide By           : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLK}
+
+Generated Clock     : clk_pll_i
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/gen_mmcm.mmcm_i/CLKIN1
+Master Clock        : pll_clk3_out
+Multiply By         : 1
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/gen_mmcm.mmcm_i/CLKFBOUT}
+
+Generated Clock     : mmcm_ps_clk_bufg_in
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/gen_mmcm.mmcm_i/CLKIN1
+Master Clock        : pll_clk3_out
+Edges               : {1 2 3}
+Edge Shifts(ns)     : {0.000 2.500 5.000}
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/gen_mmcm.mmcm_i/CLKOUT0}
+
+Generated Clock     : iserdes_clkdiv
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/ICLK
+Master Clock        : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/iserdes_clk
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/ICLKDIV}
+
+Generated Clock     : oserdes_clkdiv
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/OCLK
+Master Clock        : oserdes_clk
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/OCLKDIV}
+
+Generated Clock     : iserdes_clkdiv_1
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/ICLK
+Master Clock        : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/iserdes_clk
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/ICLKDIV}
+
+Generated Clock     : oserdes_clkdiv_1
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLK
+Master Clock        : oserdes_clk_1
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLKDIV}
+
+Generated Clock     : iserdes_clkdiv_2
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/ICLK
+Master Clock        : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/iserdes_clk
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/ICLKDIV}
+
+Generated Clock     : oserdes_clkdiv_2
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLK
+Master Clock        : oserdes_clk_2
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLKDIV}
+
+Generated Clock     : iserdes_clkdiv_3
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/ICLK
+Master Clock        : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/iserdes_clk
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/ICLKDIV}
+
+Generated Clock     : oserdes_clkdiv_3
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLK
+Master Clock        : oserdes_clk_3
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_0.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLKDIV}
+
+Generated Clock     : oserdes_clkdiv_4
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLK
+Master Clock        : oserdes_clk_4
+Divide By           : 4
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLKDIV}
+
+Generated Clock     : oserdes_clkdiv_5
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLK
+Master Clock        : oserdes_clk_5
+Divide By           : 4
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLKDIV}
+
+Generated Clock     : oserdes_clkdiv_6
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLK
+Master Clock        : oserdes_clk_6
+Divide By           : 4
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_1.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLKDIV}
+
+Generated Clock     : iserdes_clkdiv_4
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/ICLK
+Master Clock        : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/iserdes_clk
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_in_gen.phaser_in/ICLKDIV}
+
+Generated Clock     : oserdes_clkdiv_7
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/OCLK
+Master Clock        : oserdes_clk_7
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_A.ddr_byte_lane_A/phaser_out/OCLKDIV}
+
+Generated Clock     : iserdes_clkdiv_5
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/ICLK
+Master Clock        : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/iserdes_clk
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_in_gen.phaser_in/ICLKDIV}
+
+Generated Clock     : oserdes_clkdiv_8
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLK
+Master Clock        : oserdes_clk_8
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_B.ddr_byte_lane_B/phaser_out/OCLKDIV}
+
+Generated Clock     : iserdes_clkdiv_6
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/ICLK
+Master Clock        : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/iserdes_clk
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_in_gen.phaser_in/ICLKDIV}
+
+Generated Clock     : oserdes_clkdiv_9
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLK
+Master Clock        : oserdes_clk_9
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_C.ddr_byte_lane_C/phaser_out/OCLKDIV}
+
+Generated Clock     : iserdes_clkdiv_7
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/ICLK
+Master Clock        : u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/iserdes_clk
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_in_gen.phaser_in/ICLKDIV}
+
+Generated Clock     : oserdes_clkdiv_10
+Master Source       : topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLK
+Master Clock        : oserdes_clk_10
+Divide By           : 2
+Generated Sources   : {topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_mc_phy_wrapper/u_ddr_mc_phy/ddr_phy_4lanes_2.u_ddr_phy_4lanes/ddr_byte_lane_D.ddr_byte_lane_D/phaser_out/OCLKDIV}
+
+
+
+====================================================
+User Uncertainty
+====================================================
+
+
+
+====================================================
+User Jitter
+====================================================
+
+Clock      Jitter(ns)
+JTCK       0.500
+sys_clock  0.500
+

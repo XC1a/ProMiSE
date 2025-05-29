@@ -1,0 +1,57 @@
+WReg reg17 1
+WReg reg18 1
+WReg reg19 1
+FIFO_INPUT 1 0x100000001ffffcf
+STALL 1
+R_FIFO_WIDE 0x3f 1 //reg56 memaddr , reg57 write addr, reg58 read addr, reg59 len, reg60 stack , reg61 ID+infocomplex
+M_DIS reg61 reg48 0x7f 15 0 0 0 0 0 0 0    //reg48 id,reg49 call,reg50 w,reg51 r, reg52 1, reg53 IDLE ,reg54 lib
+IF reg52 1 18 0 0       //** is lib func, jump to lib check
+BIT_AND reg56 0x7ffffff reg0 1           //reg0 addr
+RL reg0 0x2 reg0 1
+IF reg49 0 16 0 0     //** reg52==0 store, jump to write rdt
+LOAD reg31 reg18 reg0 3 1 cache0      //reg31 checkid (RDT)
+IF reg31 0 5 0 0 //aaa
+CMP reg31 reg48 reg28 0 3
+ADD reg28 reg20 reg20 0
+JUMP 5
+STORE reg48 reg18 reg0 3 1 cache0 1
+JUMP 5
+BIT_AND reg57 0x7ffffff reg0 1           //reg0 write addr
+BIT_AND reg58 0x7ffffff reg1 1           //reg1 read addr
+IF reg49 0 50 0 0        //** call
+IF reg54 0 45 0 0          //** lib
+BIT_AND reg57 0x3 reg57 1           
+ADD reg57 reg59 reg59 0    
+ADD reg59 0x3 reg59 1    //** len ceil
+RL reg59 0x2 reg2 1    //length ceil up to reg2
+IF reg2 0 5 0 0
+IF reg51 0 37 0 0      //** no read, jump to write rdt
+RL reg1 0x2 reg3 1
+LOAD reg31 reg18 reg3 3 1 cache0
+IF reg31 0 33 0 0 //aaa
+CMP reg31 reg48 reg28 0 3
+ADD reg20 0x0 reg20 1
+ADD reg9 0x1 reg9 1
+CMP reg9 reg2 reg10 0 0
+ADD reg1 0x4 reg1 1  //address + 4
+IF reg10 0 28 0 0      //** read check done, jump to lib write rdt
+IF reg50 0 45 0 0         //** no write, jump back to begin
+WReg reg9 0          //-------------lib write
+RL reg0 0x2 reg3 1
+STORE reg48 reg18 reg3 3 1 cache0 1
+ADD reg9 0x1 reg9 1
+CMP reg9 reg2 reg10 0 0
+ADD reg0 0x4 reg0 1  //address + 4
+IF reg10 0 39 0 0
+BIT_AND reg60 0x7ffffff reg0 1  //-------------ret check
+ADD reg48 0x0 reg48 1
+RL reg0 0x2 reg3 1
+STORE reg48 reg18 reg3 3 1 cache0 1
+JUMP 5
+BIT_AND reg60 0x7ffffff reg0 1  //-------------ret check
+RL reg0 0x2 reg3 1 //----------begin to read check
+LOAD reg31 reg18 reg3 3 1 cache0      //reg31 checkid (RDT)
+IF reg31 0 5 0 0 //aaa
+CMP reg31 reg48 reg10 0 3
+ADD reg10 reg20 reg20 0
+JUMP 5             //** 

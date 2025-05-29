@@ -1,0 +1,37 @@
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:74:6: value commitLog is not a member of freechips.rocketchip.tile.RoCCIO[0m
+[0m[[0m[31merror[0m] [0m[0m  io.commitLog.ready := Bool(true)[0m
+[0m[[0m[31merror[0m] [0m[0m     ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:81:35: value commitLog is not a member of freechips.rocketchip.tile.RoCCIO[0m
+[0m[[0m[31merror[0m] [0m[0m    matchUnits(i).commitLog <> io.commitLog[0m
+[0m[[0m[31merror[0m] [0m[0m                                  ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:165:19: value valid_req is not a member of freechips.rocketchip.rocket.HellaCacheReq[0m
+[0m[[0m[31merror[0m] [0m[0m  io.mem.req.bits.valid_req := wait_for_resp_after_assert && (io.commitLog.bits.priv === UInt(0) || io.commitLog.bits.priv === UInt(1)) && (enabled)[0m
+[0m[[0m[31merror[0m] [0m[0m                  ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:165:66: value commitLog is not a member of freechips.rocketchip.tile.RoCCIO[0m
+[0m[[0m[31merror[0m] [0m[0m  io.mem.req.bits.valid_req := wait_for_resp_after_assert && (io.commitLog.bits.priv === UInt(0) || io.commitLog.bits.priv === UInt(1)) && (enabled)[0m
+[0m[[0m[31merror[0m] [0m[0m                                                                 ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:165:104: value commitLog is not a member of freechips.rocketchip.tile.RoCCIO[0m
+[0m[[0m[31merror[0m] [0m[0m  io.mem.req.bits.valid_req := wait_for_resp_after_assert && (io.commitLog.bits.priv === UInt(0) || io.commitLog.bits.priv === UInt(1)) && (enabled)[0m
+[0m[[0m[31merror[0m] [0m[0m                                                                                                       ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:166:73: value commitLog is not a member of freechips.rocketchip.tile.RoCCIO[0m
+[0m[[0m[31merror[0m] [0m[0m  io.mem.req.valid := (controlUnit.act_mem_req.valid | mem_wait) && (io.commitLog.bits.priv === UInt(0) || io.commitLog.bits.priv === UInt(1)) && (enabled)[0m
+[0m[[0m[31merror[0m] [0m[0m                                                                        ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:166:111: value commitLog is not a member of freechips.rocketchip.tile.RoCCIO[0m
+[0m[[0m[31merror[0m] [0m[0m  io.mem.req.valid := (controlUnit.act_mem_req.valid | mem_wait) && (io.commitLog.bits.priv === UInt(0) || io.commitLog.bits.priv === UInt(1)) && (enabled)[0m
+[0m[[0m[31merror[0m] [0m[0m                                                                                                              ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:173:68: value commitLog is not a member of freechips.rocketchip.tile.RoCCIO[0m
+[0m[[0m[31merror[0m] [0m[0m  when (controlUnit.act_mem_req.valid && (!io.mem.req.ready || (io.commitLog.bits.priv =/= UInt(0) && io.commitLog.bits.priv =/= UInt(1)) || !enabled)) {[0m
+[0m[[0m[31merror[0m] [0m[0m                                                                   ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:173:106: value commitLog is not a member of freechips.rocketchip.tile.RoCCIO[0m
+[0m[[0m[31merror[0m] [0m[0m  when (controlUnit.act_mem_req.valid && (!io.mem.req.ready || (io.commitLog.bits.priv =/= UInt(0) && io.commitLog.bits.priv =/= UInt(1)) || !enabled)) {[0m
+[0m[[0m[31merror[0m] [0m[0m                                                                                                         ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:179:10: value invalidate_lr is not a member of freechips.rocketchip.rocket.HellaCacheIO[0m
+[0m[[0m[31merror[0m] [0m[0m  io.mem.invalidate_lr := Bool(false)[0m
+[0m[[0m[31merror[0m] [0m[0m         ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:181:87: value commitLog is not a member of freechips.rocketchip.tile.RoCCIO[0m
+[0m[[0m[31merror[0m] [0m[0m  interrupt_en := controlUnit.interrupt_en || configUnits(activeUnit).resp.intr || io.commitLog.bits.interrupt_replay || (activation_queue.count === threshold)[0m
+[0m[[0m[31merror[0m] [0m[0m                                                                                      ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/wxrqw/rocket/freedom-configsty/rocket-chip/varanus/src/main/scala/Komodo.scala:219:16: value assertion is not a member of freechips.rocketchip.rocket.HellaCacheIO[0m
+[0m[[0m[31merror[0m] [0m[0m  when (io.mem.assertion && wait_for_resp) {[0m
+[0m[[0m[31merror[0m] [0m[0m               ^[0m
+[0m[[0m[31merror[0m] [0m[0m12 errors found[0m

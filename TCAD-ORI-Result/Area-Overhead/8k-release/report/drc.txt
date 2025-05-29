@@ -1,0 +1,237 @@
+Copyright 1986-2018 Xilinx, Inc. All Rights Reserved.
+------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2018.3 (lin64) Build 2405991 Thu Dec  6 23:36:41 MST 2018
+| Date         : Sun Dec  4 01:11:49 2022
+| Host         : ubuntu running 64-bit Ubuntu 16.04.7 LTS
+| Command      : report_drc -file /home/wxrqw/rocket/freedom-configsty/builds/vc707-u500devkit/obj/report/drc.txt
+| Design       : VC707PCIeShell
+| Device       : xc7vx485tffg1761-2
+| Speed File   : -2
+| Design State : Fully Routed
+------------------------------------------------------------------------------------------------------------------
+
+Report DRC
+
+Table of Contents
+-----------------
+1. REPORT SUMMARY
+2. REPORT DETAILS
+
+1. REPORT SUMMARY
+-----------------
+            Netlist: VC707PCIeShell
+          Floorplan: design_1
+      Design limits: <entire design considered>
+           Ruledeck: default
+             Max violations: <unlimited>
+             Violations found: 38
++-----------+----------+----------------------------+------------+
+| Rule      | Severity | Description                | Violations |
++-----------+----------+----------------------------+------------+
+| DPIP-1    | Warning  | Input pipelining           | 8          |
+| DPOP-1    | Warning  | PREG Output pipelining     | 11         |
+| DPOP-2    | Warning  | MREG Output pipelining     | 11         |
+| PLCK-12   | Warning  | Clock Placer Checks        | 1          |
+| REQP-1709 | Warning  | Clock output buffering     | 1          |
+| REQP-1839 | Warning  | RAMB36 async control check | 6          |
++-----------+----------+----------------------------+------------+
+
+2. REPORT DETAILS
+-----------------
+DPIP-1#1 Warning
+Input pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14 input topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#2 Warning
+Input pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__0 input topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__0/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#3 Warning
+Input pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__1 input topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__1/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#4 Warning
+Input pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__2 input topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__2/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#5 Warning
+Input pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__4 input topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__4/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#6 Warning
+Input pipelining  
+DSP topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14 input topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#7 Warning
+Input pipelining  
+DSP topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14__0 input topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14__0/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#8 Warning
+Input pipelining  
+DSP topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14__0 input topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14__0/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPOP-1#1 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/core/div/_T_84 output topDesign/topMod/tile/core/div/_T_84/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#2 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/core/div/_T_84__0 output topDesign/topMod/tile/core/div/_T_84__0/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#3 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/core/div/_T_84__1 output topDesign/topMod/tile/core/div/_T_84__1/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#4 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/core/div/_T_84__2 output topDesign/topMod/tile/core/div/_T_84__2/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#5 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__0 output topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__0/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#6 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__1 output topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__1/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#7 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__4 output topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__4/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#8 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__5 output topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__5/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#9 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__7 output topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__7/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#10 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14 output topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#11 Warning
+PREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14__0 output topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14__0/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-2#1 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/core/div/_T_84 multiplier stage topDesign/topMod/tile/core/div/_T_84/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#2 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/core/div/_T_84__0 multiplier stage topDesign/topMod/tile/core/div/_T_84__0/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#3 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/core/div/_T_84__1 multiplier stage topDesign/topMod/tile/core/div/_T_84__1/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#4 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/core/div/_T_84__2 multiplier stage topDesign/topMod/tile/core/div/_T_84__2/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#5 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__0 multiplier stage topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__0/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#6 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__1 multiplier stage topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__1/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#7 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__4 multiplier stage topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__4/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#8 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__5 multiplier stage topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__5/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#9 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__7 multiplier stage topDesign/topMod/tile/fpuOpt/dfma/fma/_T_14__7/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#10 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14 multiplier stage topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#11 Warning
+MREG Output pipelining  
+DSP topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14__0 multiplier stage topDesign/topMod/tile/fpuOpt/sfma/fma/_T_14__0/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+PLCK-12#1 Warning
+Clock Placer Checks  
+Poor placement for routing between an IO pin and BUFG. 
+Resolution: Poor placement of an IO pin and a BUFG has resulted in the router using a non-dedicated path between the two.  There are several things that could trigger this DRC, each of which can cause unpredictable clock insertion delays that result in poor timing.  This DRC could be caused by any of the following: (a) a clock port was placed on a pin that is not a CCIO-pin (b)the BUFG has not been placed in the same half of the device or SLR as the CCIO-pin (c) a single ended clock has been placed on the N-Side of a differential pair CCIO-pin.
+ This is normally an ERROR but the CLOCK_DEDICATED_ROUTE constraint is set to FALSE allowing your design to continue. The use of this override is highly discouraged as it may lead to very poor timing results. It is recommended that this error condition be corrected in the design.
+
+	jtag_jtag_TCK_IBUF_inst (IBUF.O) is locked to R32
+	jtag_jtag_TCK_IBUF_BUFG_inst (BUFG.I) is provisionally placed by clockplacer on BUFGCTRL_X0Y2
+
+Related violations: <none>
+
+REQP-1709#1 Warning
+Clock output buffering  
+PLLE2_ADV connectivity violation. The signal topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/pll_clk3_out on the topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i/CLKOUT3 pin of topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/plle2_i does not drive the same kind of BUFFER load as the other CLKOUT pins. Routing from the different buffer types will not be phase aligned.
+Related violations: <none>
+
+REQP-1839#1 Warning
+RAMB36 async control check  
+The RAMB36E1 topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_calib_top/ddr_phy_prbs_rdlvl_gen.u_ddr_phy_prbs_rdlvl/dec_cnt_reg has an input control pin topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_calib_top/ddr_phy_prbs_rdlvl_gen.u_ddr_phy_prbs_rdlvl/dec_cnt_reg/ENARDEN (net: topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_calib_top/ddr_phy_prbs_rdlvl_gen.u_ddr_phy_prbs_rdlvl/dec_cnt_reg_ENARDEN_cooolgate_en_sig_5) which is driven by a register (topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/rstdiv0_sync_r1_reg_rep__2) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#2 Warning
+RAMB36 async control check  
+The RAMB36E1 topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_calib_top/ddr_phy_prbs_rdlvl_gen.u_ddr_phy_prbs_rdlvl/dec_cnt_reg has an input control pin topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_calib_top/ddr_phy_prbs_rdlvl_gen.u_ddr_phy_prbs_rdlvl/dec_cnt_reg/ENARDEN (net: topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_memc_ui_top_axi/mem_intfc0/ddr_phy_top0/u_ddr_calib_top/ddr_phy_prbs_rdlvl_gen.u_ddr_phy_prbs_rdlvl/dec_cnt_reg_ENARDEN_cooolgate_en_sig_5) which is driven by a register (topDesign/topMod/mig/island/blackbox/u_vc707mig1gb_mig/u_ddr3_infrastructure/rstdiv0_sync_r_reg[11]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#3 Warning
+RAMB36 async control check  
+The RAMB36E1 topDesign/topMod/tile/accumulator/co_core/i_mem_reg has an input control pin topDesign/topMod/tile/accumulator/co_core/i_mem_reg/ENARDEN (net: topDesign/topMod/tile/accumulator/co_core/i_mem_reg_i_1_n_0) which is driven by a register (topDesign/topMod/debug_1/dmOuter/dmOuter/DMCONTROL/reg_1/q_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#4 Warning
+RAMB36 async control check  
+The RAMB36E1 topDesign/topMod/tile/accumulator/co_core/i_mem_reg has an input control pin topDesign/topMod/tile/accumulator/co_core/i_mem_reg/ENARDEN (net: topDesign/topMod/tile/accumulator/co_core/i_mem_reg_i_1_n_0) which is driven by a register (topDesign/wrangler/ResetCatchAndSync_d3/AsyncResetSynchronizerShiftReg_w1_d3_i0/sync_0/reg_0/q_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#5 Warning
+RAMB36 async control check  
+The RAMB36E1 topDesign/topMod/tile/accumulator/co_core/i_mem_reg has an input control pin topDesign/topMod/tile/accumulator/co_core/i_mem_reg/RSTRAMARSTRAM (net: topDesign/topMod/tile/accumulator/co_core/dfi_r_state) which is driven by a register (topDesign/topMod/debug_1/dmOuter/dmOuter/DMCONTROL/reg_1/q_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#6 Warning
+RAMB36 async control check  
+The RAMB36E1 topDesign/topMod/tile/accumulator/co_core/i_mem_reg has an input control pin topDesign/topMod/tile/accumulator/co_core/i_mem_reg/RSTRAMARSTRAM (net: topDesign/topMod/tile/accumulator/co_core/dfi_r_state) which is driven by a register (topDesign/wrangler/ResetCatchAndSync_d3/AsyncResetSynchronizerShiftReg_w1_d3_i0/sync_0/reg_0/q_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+

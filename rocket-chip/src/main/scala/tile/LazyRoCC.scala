@@ -1,0 +1,5914 @@
+// See LICENSE.Berkeley for license details.
+// See LICENSE.SiFive for license details.
+
+package freechips.rocketchip.tile
+
+import Chisel._
+
+import freechips.rocketchip.config._
+import freechips.rocketchip.subsystem._
+import freechips.rocketchip.diplomacy._
+import freechips.rocketchip.rocket._
+import freechips.rocketchip.tilelink._
+import freechips.rocketchip.util.InOrderArbiter
+
+import chisel3.core.{Input, Output}
+
+case object BuildRoCC extends Field[Seq[Parameters => LazyRoCC]](Nil)
+
+//flang
+class DFIPort(implicit p: Parameters) extends CoreBundle {
+	val test = Bits(width = xLen)
+	val taraddr = Bits(width = xLen)
+	val ltaraddr = Bits(width = xLen)
+	val staraddr = Bits(width = xLen)
+	val cmd = Bits(width = xLen)
+	val valid = Bool(INPUT)
+	val svalid = Bool(INPUT)
+	val lvalid = Bool(INPUT)
+	val priv = Bits(width = xLen)
+	val cycle = Bits(width = xLen)
+	val cycle_now = Bits(width = xLen)
+	val threadptr = Input(UInt(xLen.W))
+	val funcretaddr = Input(UInt(xLen.W))
+	val funcstackaddr = Input(UInt(xLen.W))
+	val funcarg0 = Input(UInt(xLen.W))
+	val funcarg1 = Input(UInt(xLen.W))
+	val funcarg2 = Input(UInt(xLen.W))
+	val funcarg3 = Input(UInt(xLen.W))
+	val funcarg4 = Input(UInt(xLen.W))
+	val funcarg5 = Input(UInt(xLen.W))
+	val callvalid = Bool(INPUT)
+	val retvalid = Bool(INPUT)
+	val brtarget = Input(SInt(xLen.W))
+}
+
+//wxrqw
+class CFIPort(implicit p: Parameters) extends CoreBundle {
+	val taken = Bool(INPUT)
+	val valid = Bool(INPUT)
+	val mispredict = Bool(INPUT)
+	val pc = Input(UInt(40.W))
+	val cfiType = Input(UInt(3.W))
+	val isCFI = Bool(INPUT)
+	//debug
+	val isSP = Input(UInt(64.W))
+}
+
+
+
+class RoCCInstruction extends Bundle {
+  val funct = Bits(width = 7)
+  val rs2 = Bits(width = 5)
+  val rs1 = Bits(width = 5)
+  val xd = Bool()
+  val xs1 = Bool()
+  val xs2 = Bool()
+  val rd = Bits(width = 5)
+  val opcode = Bits(width = 7)
+}
+
+class RoCCCommand(implicit p: Parameters) extends CoreBundle()(p) {
+  val inst = new RoCCInstruction
+  val rs1 = Bits(width = xLen)
+  val rs2 = Bits(width = xLen)
+  val status = new MStatus
+}
+
+class RoCCResponse(implicit p: Parameters) extends CoreBundle()(p) {
+  val rd = Bits(width = 5)
+  val data = Bits(width = xLen)
+}
+
+class RoCCCoreIO(implicit p: Parameters) extends CoreBundle()(p) {
+  val cmd = Decoupled(new RoCCCommand).flip
+  val resp = Decoupled(new RoCCResponse)
+  val mem = new HellaCacheIO
+  val busy = Bool(OUTPUT)
+  val interrupt = Bool(OUTPUT)
+  val exception = Bool(INPUT)
+  //flang
+  val corestalled = Bool(INPUT)
+  val corestall = Bool(OUTPUT)
+  val coreexception = Bool(OUTPUT)
+  val canexception = Bool(INPUT)
+  val cmdvalid = Bool(INPUT)
+  val test = Bits(width = xLen).flip
+  val dfi = Decoupled(new DFIPort).flip
+  //wxrqw
+  val corestall_wxr = Bool(OUTPUT)
+  val reg_id = Bits(width=5)
+  val reg_value = Bits(width=64)
+  val reg_valid = Bool(OUTPUT)
+  val reg_ready = Bool(INPUT)
+  val cfi = Decoupled(new CFIPort).flip
+}
+
+class RoCCIO(val nPTWPorts: Int)(implicit p: Parameters) extends RoCCCoreIO()(p) {
+  val ptw = Vec(nPTWPorts, new TLBPTWIO)
+  val fpu_req = Decoupled(new FPInput)
+  val fpu_resp = Decoupled(new FPResult).flip
+}
+
+/** Base classes for Diplomatic TL2 RoCC units **/
+abstract class LazyRoCC(
+      val opcodes: OpcodeSet,
+      val nPTWPorts: Int = 0,
+      val usesFPU: Boolean = false
+    )(implicit p: Parameters) extends LazyModule {
+  val module: LazyRoCCModuleImp
+  val atlNode: TLNode = TLIdentityNode()
+  val tlNode: TLNode = TLIdentityNode()
+}
+
+class LazyRoCCModuleImp(outer: LazyRoCC) extends LazyModuleImp(outer) {
+  val io = IO(new RoCCIO(outer.nPTWPorts))
+}
+
+/** Mixins for including RoCC **/
+
+trait HasLazyRoCC extends CanHavePTW { this: BaseTile =>
+  val roccs = p(BuildRoCC).map(_(p))
+
+  roccs.map(_.atlNode).foreach { atl => tlMasterXbar.node :=* atl }
+  roccs.map(_.tlNode).foreach { tl => tlOtherMastersNode :=* tl }
+
+  nPTWPorts += roccs.map(_.nPTWPorts).foldLeft(0)(_ + _)
+  nDCachePorts += roccs.size
+}
+
+trait HasLazyRoCCModule extends CanHavePTWModule
+    with HasCoreParameters { this: RocketTileModuleImp with HasFpuOpt =>
+
+  val (respArb, cmdRouter) = if(outer.roccs.size > 0) {
+    val respArb = Module(new RRArbiter(new RoCCResponse()(outer.p), outer.roccs.size))
+    val cmdRouter = Module(new RoccCommandRouter(outer.roccs.map(_.opcodes))(outer.p))
+    outer.roccs.zipWithIndex.foreach { case (rocc, i) =>
+      ptwPorts ++= rocc.module.io.ptw
+      rocc.module.io.cmd <> cmdRouter.io.out(i)
+      val dcIF = Module(new SimpleHellaCacheIF()(outer.p))
+      dcIF.io.requestor <> rocc.module.io.mem
+      dcachePorts += dcIF.io.cache
+      respArb.io.in(i) <> Queue(rocc.module.io.resp)
+    }
+
+    fpuOpt foreach { fpu =>
+      val nFPUPorts = outer.roccs.filter(_.usesFPU).size
+      if (usingFPU && nFPUPorts > 0) {
+        val fpArb = Module(new InOrderArbiter(new FPInput()(outer.p), new FPResult()(outer.p), nFPUPorts))
+        val fp_rocc_ios = outer.roccs.filter(_.usesFPU).map(_.module.io)
+        fpArb.io.in_req <> fp_rocc_ios.map(_.fpu_req)
+        fp_rocc_ios.zip(fpArb.io.in_resp).foreach {
+          case (rocc, arb) => rocc.fpu_resp <> arb
+        }
+        fpu.io.cp_req <> fpArb.io.out_req
+        fpArb.io.out_resp <> fpu.io.cp_resp
+      } else {
+        fpu.io.cp_req.valid := Bool(false)
+        fpu.io.cp_resp.ready := Bool(false)
+      }
+    }
+    (Some(respArb), Some(cmdRouter))
+  } else {
+    (None, None)
+  }
+}
+
+//flang++++++++++++++++
+
+class DFIFIFO(depth: Int, datawidth: Int)(implicit p: Parameters) extends Module {
+	val io = new Bundle{
+		val rst = Bool(INPUT)
+		val write = Bool(INPUT)
+		val datain = Bits(width = datawidth).flip
+		val read = Bool(INPUT)
+		val dataout = Bits(width = datawidth)
+		val full = Bool(OUTPUT)
+		val nowfull = Bool(OUTPUT)
+		val empty = Bool(OUTPUT)
+		val datacnt = Bits(width = 32)
+	}
+	val addrwidth = log2Up(depth)
+	val head = Reg(init = Bits(0,width = addrwidth+2))
+	val tail = Reg(init = Bits(0,width = addrwidth+2))
+	io.datacnt := Mux(head>=tail,head-tail,tail-head)
+	//val buffer=Reg(init = Vec.fill(depth){Bits(0,width = datawidth)})
+	val buffer=Mem(depth,Bits(width = datawidth))
+	
+	val nowfull = ((head(addrwidth-1,0) === tail(addrwidth-1,0)) && (head(addrwidth) =/= tail(addrwidth)))
+	val willfull = io.write && (head(addrwidth-1,0) === (tail+Bits(1))(addrwidth-1,0)) && (head(addrwidth) =/= (tail+Bits(1))(addrwidth))
+	val nowempty = ((head(addrwidth-1,0) === tail(addrwidth-1,0)) && (head(addrwidth) === tail(addrwidth)))
+	val willempty = (io.read && ((head+Bits(1))(addrwidth-1,0) === tail(addrwidth-1,0)) && ((head+Bits(1))(addrwidth) === tail(addrwidth)))
+	io.full := nowfull || willfull
+	io.empty := nowempty || willempty
+	io.nowfull := nowfull
+	
+	//val outbuf=Reg(init = Bits(0,width = datawidth))
+	
+	when(io.rst){
+		head := Bits(0)
+		tail := Bits(0)
+	}
+	when(!io.rst && io.write){
+		when(!nowfull){
+			buffer(tail(addrwidth-1,0)) := io.datain
+			tail := tail + Bits(1)
+		}.otherwise{}
+	}
+	when(!io.rst && io.read){
+		when(!nowempty){
+			head := head + Bits(1)
+		}.otherwise{}
+	}.otherwise{}
+	io.dataout := buffer(head(addrwidth-1,0))
+}
+
+class DFI_stoptbuf(size: Int, addrwidth: Int)(implicit p: Parameters) extends Module {
+	val io = new Bundle {
+		val rst = Bool(INPUT)
+		val rw = Bits(width = 1)
+		val id = Bits(width = 16)
+		val taraddr = Bits(width = addrwidth)
+		val red = Bool(OUTPUT)
+	}
+}
+
+class DFILdOptBuf(size: Int, addrwidth: Int)(implicit p: Parameters) extends Module {
+	val io = new Bundle{
+		val rst = Bool(INPUT)
+		val rw = Bits(width = 1).flip
+		val id = Bits(width = 16).flip
+		val taraddr = Bits(width = addrwidth).flip
+		val red = Bool(OUTPUT)
+	}
+	val buf_id=Reg(init = Vec.fill(size){Bits(0,width = 16)})
+	val buf_taraddr=Reg(init = Vec.fill(size){Bits(0,width = addrwidth)})
+	
+	val sameid=Vec.fill(size){Bool(false)}
+	val sametaraddr=Vec.fill(size){Bool(false)}
+	
+	for (i<- 0 to size-1){
+		sameid(i) := (io.id === buf_id(i))
+		sametaraddr(i) := (io.taraddr === buf_taraddr(i))
+	}
+	
+	buf_id(0) := Mux(io.rst,Bits(0),Mux(io.rw === Bits(1), io.id, buf_id(0)))
+	buf_taraddr(0) := Mux(io.rst,Bits(0),Mux(io.rw === Bits(1), io.taraddr, buf_taraddr(0)))
+	for (i<- 1 to size-1){
+		buf_id(i) := Mux(io.rst,Bits(0),Mux(io.rw === Bits(1), buf_id(i-1), Mux(sametaraddr(i), Bits(0), buf_id(i))))
+		buf_taraddr(i) := Mux(io.rst,Bits(0),Mux(io.rw === Bits(1), buf_taraddr(i-1), Mux(sametaraddr(i), Bits(0), buf_taraddr(i))))
+	}
+	
+	val sameboth=Vec.fill(size){Bool(false)}
+	for (i<- 0 to size-1){
+		sameboth(i) := (sameid(i)&&sametaraddr(i))
+	}
+	
+	val midre=Vec.fill(size){Vec.fill(size){Bool(false)}}
+	for (i<- 0 to log2Up(size)-1){
+		for (j<- 0 to (1<<i)-1){
+			if(i<log2Up(size)-1){
+				midre(i)(j) := midre(i+1)(j<<1) | midre(i+1)((j<<1)+1)
+			}else{
+				midre(i)(j) := sameboth(j<<1) | sameboth((j<<1)+1)
+			}
+		}
+	}
+	io.red := midre(0)(0)
+}
+
+class  DFIcheck(opcodes: OpcodeSet)(implicit p: Parameters) extends LazyRoCC(opcodes) {
+  override lazy val module = new DFIcheckImp(this)
+}
+
+class DFIcheckImp2(outer: DFIcheck)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
+    with HasCoreParameters {
+}
+
+class DFIcheckImp(outer: DFIcheck)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
+    with HasCoreParameters {
+	//IMPORTANT!!!!!: this module works under the assumption that the lowest 3 bits of rdsaddr, rdtaddr and debugaddr are all 0
+	//info format:
+	//21-20 = 0 : 19 = 0 : 16:st/ld, 15-0: id
+	//21-20 = 0 : 19 = 1 : 18:ld?, 17:st?, 16:call/ret? 15-0: id
+	//21-20 = 1 : rdt addr
+	//21-20 = 2 : rds addr
+	//21-20 = 3 : debug addr, 19 = 1 : run with debug
+	//21-20 = 3 : debug addr, 18 = 1 : write debug
+	//21-20 = 3 : debug addr, 17 = 1 : func signal
+	
+	def SIMULATION: Bool = Bool(false)
+	
+	def fifostldsize: Int = 64
+	def fifofuncsize: Int = 8
+	
+	def ldopbufsize: Int = 64
+	
+	def shdstacksize: Int = 1024
+	
+	def bufsize: Int = 8
+	
+	def addrshift: Int = 2
+	
+	def rdscacheaddrwidth: Int = 10
+	def rdsaddrwidth: Int = 16 //log(how many entry), not how many bytes
+	def rdscacheaddrmask: UInt = UInt((1<<rdscacheaddrwidth)-1)
+	
+	def rdsmapcacheaddrwidth: Int = 10
+	def rdsmapaddrwidth: Int = 16 //log(how many entry), not how many bytes
+	def rdsmapcacheaddrmask: UInt = UInt((1<<rdsmapcacheaddrwidth)-1)
+	
+	//def rdtcacheaddrwidth: Int = 5
+	//def rdtaddrwidth: Int = 8 //log(how many entry), not how many bytes
+	def rdtcacheaddrwidth: Int = 10
+	def rdtaddrwidth: Int = 25 //log(how many entry), not how many bytes
+	def addrmask: Int = (1<<rdtaddrwidth)-1
+	def rdtcacheaddrmask: UInt = UInt((1<<rdtcacheaddrwidth)-1)
+	
+	val addrrdt = Reg(init = Bits(0,width = xLen))
+	val addrrds = Reg(init = Bits(0,width = xLen))
+	val addrdebug = Reg(init = Bits(0,width = xLen))
+	
+	//target address acuqire
+	val saddrbuf = Reg(init = Vec.fill(bufsize){Bits(0,width = xLen)})
+	val scyclebuf = Reg(init = Vec.fill(bufsize){Bits(0,width = xLen)})
+	val saddrbuf_p = Reg(init = Bits(0,width = xLen))
+	val laddrbuf = Reg(init = Vec.fill(bufsize){Bits(0,width = xLen)})
+	val lcyclebuf = Reg(init = Vec.fill(bufsize){Bits(0,width = xLen)})
+	val laddrbuf_p = Reg(init = Bits(0,width = xLen))
+	val staraddrs = Reg(init = Vec.fill(bufsize){Bits(0,width = xLen)})
+	val staraddrs_p = Reg(init = Bits(0,width = xLen))
+	val ltaraddrs = Reg(init = Vec.fill(bufsize){Bits(0,width = xLen)})
+	val ltaraddrs_p = Reg(init = Bits(0,width = xLen))
+	val staraddr = Reg(init = Bits(0,width = xLen))
+	val ltaraddr = Reg(init = Bits(0,width = xLen))
+	
+	//DFI shared
+	val count = Reg(init = Bits(0,width = 8))
+	val countreq = Reg(init = Bits(0,width = 16))
+	val countresp = Reg(init = Bits(0,width = 16))
+	val countstinflight = Reg(init = Bits(0,width = 16))
+	val matched = Reg(init = Bool(true))
+	val info_debug = Reg(init = Bits(0,width = xLen))
+	val infor = Reg(init = Bits(0,width = xLen))
+	val haserror = Reg(init = Bool(false))
+	val waitresp = Reg(init = Bool(false))
+	
+	//st/ld DFI
+	val slneedprocess = Reg(init = Bits(0,width = 2))
+	val taraddr = Reg(init = Vec.fill(2){Bits(0,width = xLen)})
+	val rw = Reg(init = Bits(0,width = 1))
+	val id = Reg(init = Vec.fill(3){Bits(0,width = xLen)})
+	val prevwid = Reg(init = Bits(0,width = xLen))
+	val rdsid = Reg(init = Bits(0,width = xLen))
+	val rdsp = Reg(init = Bits(0,width = xLen))
+	val rdss = Reg(init = Bits(0,width = xLen))
+	val rdse = Reg(init = Bits(0,width = xLen))
+	
+	//func DFI
+	val brneedprocess = Reg(init = Vec.fill(2){Bool(false)})
+	val waitingcall = Reg(init = Bool(false))
+	val repcall = Reg(init = Bool(false))
+	val callremain = Reg(init = Vec.fill(3){Bool(false)})
+	val brremain = Reg(init = Vec.fill(2){Bool(false)})
+	val brtarget = Reg(init = Vec.fill(2){SInt(0,width = xLen)})
+	val funcretaddr = Reg(init = Vec.fill(2){UInt(0,width = xLen)})
+	val funcarg0 = Reg(init = Vec.fill(2){UInt(0,width = xLen)})
+	val funcarg1 = Reg(init = Vec.fill(2){UInt(0,width = xLen)})
+	val funcarg2 = Reg(init = Vec.fill(2){UInt(0,width = xLen)})
+	val funcarg3 = Reg(init = Vec.fill(2){UInt(0,width = xLen)})
+	val funcarg4 = Reg(init = Vec.fill(2){UInt(0,width = xLen)})
+	val funcarg5 = Reg(init = Vec.fill(2){UInt(0,width = xLen)})
+	val funcretpointer = Reg(init = Vec.fill(2){UInt(0,width = xLen)})
+	val funcmode = Reg(init = Vec.fill(3){Bits(0,width = 2)})//000: normal call; 001: lib call, w; 010: lib call, r; 011: lib call, w+r; 100: ret 
+	val funciscall = Reg(init = Vec.fill(2){Bool(false)})
+	val funccount = Reg(init = Bits(0,width = xLen))
+	val totalfunccount = Reg(init = Vec.fill(2){Bits(0,width = xLen)})
+	
+	//for stop
+	val stop_call_count = Reg(init = Bits(0,width = xLen))
+	val stop_call_count_all = Reg(init = Bits(0,width = xLen))
+	val stop_call_count_max = Reg(init = Bits(0,width = xLen))
+	val stop_call_count_keep = Reg(init = Bits(0,width = xLen))
+	val stop_repcall = Reg(init = Bool(false))
+	val stop_brtarget = Reg(init = SInt(0,width = xLen))
+	val stop_coreexception = Reg(init = Bool(false))
+	io.coreexception := stop_coreexception
+	
+	//for debug
+	val opst_count = Reg(init = Bits(0,width = xLen))
+	val opld_count = Reg(init = Bits(0,width = xLen))
+	val uprdt_cycle = Reg(init = Bits(0,width = xLen))
+	val rdrdt_cycle = Reg(init = Bits(0,width = xLen))
+	val rdrdsmap_cycle = Reg(init = Bits(0,width = xLen))
+	val rdrds_cycle = Reg(init = Bits(0,width = xLen))
+	val chk_cycle = Reg(init = Bits(0,width = xLen))
+	val maxlibarg0 = Reg(init = Bits(0,width = xLen))
+	val maxlibarg1 = Reg(init = Bits(0,width = xLen))
+	val maxlibarg2 = Reg(init = Bits(0,width = xLen))
+	val maxlibarg3 = Reg(init = Bits(0,width = xLen))
+	val maxlibarg4 = Reg(init = Bits(0,width = xLen))
+	val maxlibarg5 = Reg(init = Bits(0,width = xLen))
+	val maxlibretaddr = Reg(init = Bits(0,width = xLen))
+	val maxlibretptr = Reg(init = Bits(0,width = xLen))
+	val maxliblen = Reg(init = Bits(0,width = xLen))
+	val totalldopt = Reg(init = Bits(0,width = xLen))
+	val totalldnoopt = Reg(init = Bits(0,width = xLen))
+	val totalrdtcachehit = Reg(init = Bits(0,width = xLen))
+	val totalrdsmapcachehit = Reg(init = Bits(0,width = xLen))
+	val totalrdscachehit = Reg(init = Bits(0,width = xLen))
+	val totalrdtcachemiss = Reg(init = Bits(0,width = xLen))
+	val totalrdsmapcachemiss = Reg(init = Bits(0,width = xLen))
+	val totalrdscachemiss = Reg(init = Bits(0,width = xLen))
+	val idle_cycle = Reg(init = Bits(0,width = xLen))
+	val total_cycle = Reg(init = Bits(0,width = xLen))
+	val fifocuspush_cycle = Reg(init = Bits(0,width = xLen))
+	val fifofuncpush_cycle = Reg(init = Bits(0,width = xLen))
+	val fifocuspop_cycle = Reg(init = Bits(0,width = xLen))
+	val fifofuncpop_cycle = Reg(init = Bits(0,width = xLen))
+	val fifocusbranchpush = Reg(init = Bits(0,width = xLen))
+	val fifocusbranchpop = Reg(init = Bits(0,width = xLen))
+	val fifofuncbranchpush = Reg(init = Bits(0,width = xLen))
+	val fifofuncbranchpop = Reg(init = Bits(0,width = xLen))
+	val fifofuncloss = Reg(init = Bits(0,width = xLen))
+	val fifofunclatestinfo = Reg(init = Bits(0,width = xLen))
+	val fifofunclatestlossinfo = Reg(init = Bits(0,width = xLen))
+	val fifofunclatestlossrecord = Reg(init = Bits(0,width = xLen))
+	val fifofunclatestlosscuscount = Reg(init = Bits(0,width = xLen))
+	val fifofunclatestlossfunccount = Reg(init = Bits(0,width = xLen))
+	val fifocusmax = Reg(init = Bits(0,width = xLen))
+	val fifofuncmax = Reg(init = Bits(0,width = xLen))
+	val fifofunclatestlosstaraddr = Reg(init = Bits(0,width = xLen))
+	val fifofunclatesttaraddr = Reg(init = Bits(0,width = xLen))
+	val shdstackmax = Reg(init = Bits(0,width = xLen))
+	val totalstcount = Reg(init = Bits(0,width = xLen))
+	val totalldcount = Reg(init = Bits(0,width = xLen))
+	val totalcallcount = Reg(init = Bits(0,width = xLen))
+	val totalcallexceptioncount = Reg(init = Bits(0,width = xLen))
+	
+	val rdtreaddebug_p = Reg(init = Bits(0,width = xLen))
+	
+	//latency check
+	/*
+	val lat_st_state = Reg(init = Bits(0,width = xLen))
+	val lat_ld_state = Reg(init = Bits(0,width = xLen))
+	val lat_ret_state = Reg(init = Bits(0,width = xLen))
+	val lat_call_state = Reg(init = Bits(0,width = xLen))
+	val lat_libst_state = Reg(init = Bits(0,width = xLen))
+	val lat_libld_state = Reg(init = Bits(0,width = xLen))
+	val lat_libstld_state = Reg(init = Bits(0,width = xLen))
+	val lat_st_fifo_red = Reg(init = Bits(0,width = xLen))
+	val lat_ld_fifo_red = Reg(init = Bits(0,width = xLen))
+	val lat_call_fifo_red = Reg(init = Bits(0,width = xLen))
+	val lat_libst_fifo_red = Reg(init = Bits(0,width = xLen))
+	val lat_libld_fifo_red = Reg(init = Bits(0,width = xLen))
+	val lat_libstld_fifo_red = Reg(init = Bits(0,width = xLen))
+	val lat_ret_fifo_red = Reg(init = Bits(0,width = xLen))
+	val lat_st_cycles = Reg(init = Bits(0,width = xLen))
+	val lat_st_count = Reg(init = Bits(0,width = xLen))
+	val lat_ld_cycles = Reg(init = Bits(0,width = xLen))
+	val lat_ld_count = Reg(init = Bits(0,width = xLen))
+	val lat_ret_cycles = Reg(init = Bits(0,width = xLen))
+	val lat_ret_count = Reg(init = Bits(0,width = xLen))
+	val lat_call_cycles = Reg(init = Bits(0,width = xLen))
+	val lat_call_count = Reg(init = Bits(0,width = xLen))
+	val lat_libst_cycles = Reg(init = Bits(0,width = xLen))
+	val lat_libst_count = Reg(init = Bits(0,width = xLen))
+	val lat_libld_cycles = Reg(init = Bits(0,width = xLen))
+	val lat_libld_count = Reg(init = Bits(0,width = xLen))
+	val lat_libstld_cycles = Reg(init = Bits(0,width = xLen))
+	val lat_libstld_count = Reg(init = Bits(0,width = xLen))
+	val lat_cate = Reg(init = Bits(0,width = xLen))
+	*/
+	//latency check FSM parameters
+	def LAT_IDLE: Int = 0
+	def LAT_WAIT_ENQ: Int = 1
+	def LAT_WAIT_POP: Int = 2
+	def LAT_WAIT_END: Int = 3
+	
+	//timeout
+	val timeout = Reg(init = Bits(0,width = 16))
+	def maxtimeout: Int = 300
+	
+	//record
+	val violations=Reg(init = Bits(0,width = 16))
+	val errorcount=Reg(init = Bits(0,width = 32))
+	val totalcount=Reg(init = Bits(0,width = xLen))
+	
+	//opt buf
+	val ldoptbuf = Module(new DFILdOptBuf(ldopbufsize, xLen)(outer.p))
+	val ldopt_rst = Reg(init = Bool(false))
+	val ldopt_rw = Reg(init = Bits(0,width = 1))
+	val ldopt_id = Reg(init = Bits(0,width = 16))
+	val ldopt_taraddr = Reg(init = Bits(0,width = xLen))
+	ldoptbuf.io.rst := ldopt_rst
+	ldoptbuf.io.rw := ldopt_rw
+	ldoptbuf.io.id := ldopt_id
+	ldoptbuf.io.taraddr := ldopt_taraddr
+	val ldopt_red = Reg(init = Bool(false))
+
+	//shadow stack
+	//not use yet
+	//val shdstack = Mem(shdstacksize, Bits(width = xLen))
+	val shdstkaddr = Reg(init = Bits(0,width = xLen))
+	val shdstkcount = Reg(init = Bits(0,width = xLen))
+	val shdstkdatain = Reg(init = Bits(0,width = xLen))
+	//val shdstkdataout = shdstack(shdstkaddr - Bits(1))
+	//shdstack(shdstkaddr) := shdstkdatain
+	
+	//FIFO
+	val fifocustom = Module(new Queue(Bits(width = 64+22), fifostldsize))
+	val fifocusenqvalid = Reg(init = Bool(false))
+	val fifocusdeqready = Reg(init = Bool(false))
+	val fifocusdatain = Reg(init = Bits(0,width = 64+22))
+	fifocustom.io.enq.valid := fifocusenqvalid
+	fifocustom.io.enq.bits := fifocusdatain
+	fifocustom.io.deq.ready := fifocusdeqready
+	val fifocuscount = Reg(init = Bits(0,width = xLen))
+	val waitinginfifocus = Reg(init = Bool(false))
+	
+	val fifofunc = Module(new Queue(Bits(width = 2+1+1+16+64+64*3), fifofuncsize))
+	val fifofuncenqvalid = Reg(init = Bool(false))
+	val fifofuncdeqready = Reg(init = Bool(false))
+	val fifofuncdatain = Reg(init = Bits(0,width = 2+1+1+16+64+64*3))
+	fifofunc.io.enq.valid := fifofuncenqvalid
+	fifofunc.io.enq.bits := fifofuncdatain
+	fifofunc.io.deq.ready := fifofuncdeqready
+	val fifofunccount = Reg(init = Bits(0,width = xLen))
+	val waitinginfifofunc = Reg(init = Bool(false))
+	val waitingcallfifo = Reg(init = Bool(false))
+	
+	/*
+	val testfifo = Module(new Queue(Bits(width = 8), 4))
+	val fifotestvalid = Reg(init = Bool(false))
+	val fifotestready = Reg(init = Bool(false))
+	val fifotestdatain = Reg(init = Bits(0,width = 8))
+	testfifo.io.enq.valid := fifotestvalid
+	testfifo.io.enq.bits := fifotestdatain
+	testfifo.io.deq.ready := fifotestready
+	val fifostate = Reg(init = Bits(0,width = xLen))
+	
+	when(fifostate<Bits(4)){
+		when(testfifo.io.enq.fire()){
+			printf("enq data %x\n",fifotestdatain)
+			fifostate := fifostate + Bits(1)
+			fifotestvalid := Bool(false)
+		}.otherwise{
+			fifotestvalid := Bool(true)
+			fifotestdatain := fifostate + Bits(1)
+		}
+	}.otherwise{
+		when(testfifo.io.deq.fire()){
+			printf("deq data %x\n",testfifo.io.deq.bits)
+		}.otherwise{
+			fifotestready := Bool(true)
+		}
+	}
+	*/
+	/*
+	val fifocustom=Mem(4,Bits(width = 32))
+	val fifocusaddrwidth=log2Up(4)
+	val fifocushead = Reg(init = Bits(0,width = xLen))
+	val fifocustail = Reg(init = Bits(0,width = xLen))
+	val fifocusdatain = Reg(init = Bits(0,width = xLen))
+	fifocustom(fifocustail(fifocusaddrwidth-1,0)) := fifocusdatain
+	val fifocusdataout=fifocustom(fifocushead(fifocusaddrwidth-1,0))
+	*/
+	/*
+	val fifocustom = Module(new DFIFIFO(4, 32)(outer.p))
+	val fifocusrst = Reg(init = Bool(false))
+	val fifocuswrite = Reg(init = Bool(false))
+	val fifocusdatain = Reg(init = Bits(0,width = xLen))
+	val fifocusread = Reg(init = Bool(false))
+	fifocustom.io.rst := fifocusrst
+	fifocustom.io.write := fifocuswrite
+	fifocustom.io.datain := fifocusdatain
+	fifocustom.io.read := fifocusread
+	
+	val fifostate = Reg(init = Bits(0,width = xLen))
+	
+	fifostate := fifostate + Bits(1)
+	
+	when(fifostate <= Bits(20)){
+	when(!fifocustom.io.full){
+		fifocuswrite := Bool(true)
+		fifocusdatain := io.dfi.bits.cycle_now+Bits(1)
+		printf("FIFO write %x\n",io.dfi.bits.cycle_now+Bits(1))
+	}.otherwise{
+		fifocuswrite := Bool(false)
+	}
+	
+	when(!fifocustom.io.empty){
+		fifocusread := Bool(true)
+		fifocusdatain := io.dfi.bits.cycle_now
+		printf("not empty FIFO read %x\n",fifocustom.io.dataout)
+	}.otherwise{
+		printf("FIFO read %x\n",fifocustom.io.dataout)
+		fifocusread := Bool(false)
+	}
+	}
+	*/
+	/*
+	when(fifostate===Bits(0)){
+		when(!fifocustom.io.full){
+			fifocuswrite := Bool(true)
+			fifocusdatain := io.dfi.bits.cycle_now+Bits(1)
+			printf("FIFO write %x\n",io.dfi.bits.cycle_now+Bits(1))
+		}.otherwise{
+			fifocuswrite := Bool(false)
+			fifostate := Bits(1)
+		}
+	}.elsewhen(fifostate<=Bits(15)){
+		when(!fifocustom.io.empty){
+			fifocusread := Bool(true)
+			fifocusdatain := io.dfi.bits.cycle_now
+			printf("not empty FIFO read %x\n",fifocustom.io.dataout)
+		}.otherwise{
+			printf("FIFO read %x\n",fifocustom.io.dataout)
+			fifocusread := Bool(false)
+			fifostate := fifostate + Bits(1)
+		}
+	}
+	*/
+	/*
+	//funcmode 2, iscall 1, retpointer 64, arg0-2 64*3,
+	val fifofunc = Module(new DFIFIFO(4, 2+1+64+64*3)(outer.p))
+	val fifofuncrst = Reg(init = Bool(false))
+	val fifofuncwrite = Reg(init = Bool(false))
+	val fifofuncdatain = Reg(init = Bits(0,width = 2+1+64+64*3))
+	val fifofuncread = Reg(init = Bool(false))
+	fifofunc.io.rst := fifofuncrst
+	fifofunc.io.write := fifofuncwrite
+	fifofunc.io.datain := fifofuncdatain
+	fifofunc.io.read := fifofuncread
+	*/
+	
+	//FSM parameters
+	def IDLE: Int = 0
+	def WAIT: Int = 1
+	def WRITERDT: Int = 2
+	def READRDT: Int = 3
+	def READRDSMAP: Int = 4
+	def READRDS: Int = 5
+	def CHECK: Int = 6
+	def FUNCSTATE: Int = 7
+	def WRITELDTRACE: Int = 8
+	def WRITEDEBUG: Int = 9
+	def ERROR: Int = 10
+	def REPORT: Int = 11
+	def READRDTRDSMAP: Int = 12
+	def READRDTCACHE: Int = 13
+	def READRDSMAPCACHE: Int = 14
+	def CACHERESET: Int = 15
+	def READSTOPCOND: Int = 16
+	
+	val state = Reg(init = Bits(IDLE,width = 8))
+	val nstate = Reg(init = Bits(IDLE,width = 8))
+	val pstate = Reg(init = Bits(IDLE,width = 8))
+	
+	val ldstate = Reg(init = Bits(IDLE,width = 8))
+	
+	//control
+	val busystld = Reg(init = Bool(false))
+	val busyfunc = Reg(init = Bool(false))
+	val stallfunc = Reg(init = Bool(false))
+	val stallstld = Reg(init = Bool(false))
+	
+    io.corestall := stallfunc || stallstld
+	//val cmd = Queue(io.cmd)
+	val cmd = io.cmd
+	cmd.ready := !(busystld || busyfunc) //&& (violations === Bits(0))
+	
+	//wb, not use
+	io.resp.valid := Bool(false)//cmd.valid && cmd.bits.inst.xd && io.mem.req.ready
+	io.resp.bits.rd := cmd.bits.inst.rd
+	io.resp.bits.data := Bits(0)//wdata
+	io.busy := Bool(false) //cmd.valid || busy
+	io.interrupt := Bool(false)
+	
+	//get the DFI info
+	val info=(cmd.bits.inst.funct<<15)|(cmd.bits.inst.rs2<<10)|(cmd.bits.inst.rs1<<5)|(cmd.bits.inst.rd)
+	
+	//memory control
+	val memvalid = Reg(init = Bool(false))
+	val memaddr=Reg(init = Bits(0,width = xLen))
+	val memaddrmod=Reg(init = Bits(0,width = xLen))
+	val memtag = Reg(init = Bits(0,width = xLen))//used for record the memtype of the request
+	val memdatain=Reg(init = Bits(0,width = xLen))
+	val memdataout=Mux(memtag(1) === Bits(1),Mux(memtag(0) === Bits(1), io.mem.resp.bits.data, io.mem.resp.bits.data(31,0)), Mux(memtag(0) === Bits(1), io.mem.resp.bits.data(15,0), io.mem.resp.bits.data(7,0)))
+	val memw=Reg(init = Bool(false))
+	val memtype=Reg(init = Bits(0,width = xLen))
+	
+	val pmemaddr=Reg(init = Bits(0,width = xLen))
+	val pmemdatain=Reg(init = Bits(0,width = xLen))
+	val pmemw=Reg(init = Bool(false))
+	val pmemtype=Reg(init = Bits(0,width = xLen))
+	
+	//val memaddrfix = Mux((memaddr>=Bits(0xf4084000L) && memaddr<Bits(0xf4084000L+0x6000000L)), memaddr, Bits(0xf4084000L+0x4400000L))
+	val memaddrfix = memaddr
+	
+	val memoffdata = memdatain<<(((memaddrfix(2,0))<<3))
+	
+	io.mem.req.valid := memvalid//cmd.valid && ((funct === UInt(1)) || (funct === UInt(2))) // && !busy
+	io.mem.req.bits.addr := memaddrfix
+	io.mem.req.bits.tag := memtag
+	io.mem.req.bits.cmd := Mux(memw,M_XWR,M_XRD)//M_XRD // perform a load (M_XWR for stores)
+	io.mem.req.bits.typ := Mux(memtype(1) === Bits(1),Mux(memtype(0) === Bits(1), MT_D, MT_W), Mux(memtype(0) === Bits(1), MT_H, MT_B))//memtype // D = 8 bytes, W = 4, H = 2, B = 1
+	io.mem.req.bits.data := memoffdata
+	io.mem.req.bits.phys := Mux(SIMULATION,Bool(false),Bool(true))//Bool(true)
+	
+	//caches
+	val rdtcache = Mem((1<<rdtcacheaddrwidth), Bits(width = rdtaddrwidth-rdtcacheaddrwidth+64))
+	val rdtcwaddr = Reg(init = Bits(0,width = rdtcacheaddrwidth))
+	val rdtcraddr = Reg(init = Bits(0,width = rdtcacheaddrwidth))
+	val rdtcdatain = Reg(init = Bits(0,width = rdtaddrwidth-rdtcacheaddrwidth-2+64))
+	val rdtcdataout = rdtcache(rdtcraddr)
+	rdtcache(rdtcwaddr) := rdtcdatain
+	val rdtcprobing = Reg(init = Bool(false))
+	
+	val rdsmapcache = Mem((1<<rdsmapcacheaddrwidth), Bits(width = rdsmapaddrwidth-rdsmapcacheaddrwidth+64))
+	val rdsmapcwaddr = Reg(init = Bits(0,width = rdsmapcacheaddrwidth))
+	val rdsmapcraddr = Reg(init = Bits(0,width = rdsmapcacheaddrwidth))
+	val rdsmapcdatain = Reg(init = Bits(0,width = rdsmapaddrwidth-rdsmapcacheaddrwidth+64))
+	val rdsmapcdataout = rdsmapcache(rdsmapcraddr)
+	rdsmapcache(rdsmapcwaddr) := rdsmapcdatain
+	val rdsmapcprobing = Reg(init = Bool(false))
+	
+	val rdscache = Mem((1<<rdscacheaddrwidth), Bits(width = rdsaddrwidth-rdscacheaddrwidth+64))
+	val rdscwaddr = Reg(init = Bits(0,width = rdscacheaddrwidth))
+	val rdscraddr = Reg(init = Bits(0,width = rdscacheaddrwidth))
+	val rdscdatain = Reg(init = Bits(0,width = rdsaddrwidth-rdscacheaddrwidth+64))
+	val rdscdataout = rdscache(rdscraddr)
+	rdscache(rdscwaddr) := rdscdatain
+	val rdscprobing = Reg(init = Bool(false))
+	
+	//dfi check
+	val checkmatch0=(rdsp)<rdse+memaddrmod(2,1) && (rdsp)>=rdss+memaddrmod(2,1) && io.mem.resp.bits.data(15,0) === prevwid
+	val checkmatch1=(rdsp+Bits(1))<rdse+memaddrmod(2,1) && (rdsp+Bits(1))>=rdss+memaddrmod(2,1) && io.mem.resp.bits.data(31,16) === prevwid
+	val checkmatch2=(rdsp+Bits(2))<rdse+memaddrmod(2,1) && (rdsp+Bits(2))>=rdss+memaddrmod(2,1) && io.mem.resp.bits.data(47,32) === prevwid
+	val checkmatch3=(rdsp+Bits(3))<rdse+memaddrmod(2,1) && (rdsp+Bits(3))>=rdss+memaddrmod(2,1) && io.mem.resp.bits.data(63,48) === prevwid
+	val onematched=(checkmatch0 || checkmatch1) || (checkmatch2 || checkmatch3)
+	
+	val ccheckmatch0=(rdsp)<rdse+memaddrmod(2,1) && (rdsp)>=rdss+memaddrmod(2,1) && rdscdataout(15,0) === prevwid
+	val ccheckmatch1=(rdsp+Bits(1))<rdse+memaddrmod(2,1) && (rdsp+Bits(1))>=rdss+memaddrmod(2,1) && rdscdataout(31,16) === prevwid
+	val ccheckmatch2=(rdsp+Bits(2))<rdse+memaddrmod(2,1) && (rdsp+Bits(2))>=rdss+memaddrmod(2,1) && rdscdataout(47,32) === prevwid
+	val ccheckmatch3=(rdsp+Bits(3))<rdse+memaddrmod(2,1) && (rdsp+Bits(3))>=rdss+memaddrmod(2,1) && rdscdataout(63,48) === prevwid
+	val conematched=(ccheckmatch0 || ccheckmatch1) || (ccheckmatch2 || ccheckmatch3)
+	
+	when(io.dfi.bits.valid){
+		when(io.dfi.bits.cmd===M_XWR){
+			saddrbuf(saddrbuf_p(log2Up(bufsize)-1,0)) := io.dfi.bits.taraddr
+			scyclebuf(saddrbuf_p(log2Up(bufsize)-1,0)) := io.dfi.bits.cycle
+			saddrbuf_p := saddrbuf_p + Bits(1)
+		}
+		.elsewhen(io.dfi.bits.cmd===M_XRD){
+			laddrbuf(laddrbuf_p(log2Up(bufsize)-1,0)) := io.dfi.bits.taraddr
+			lcyclebuf(laddrbuf_p(log2Up(bufsize)-1,0)) := io.dfi.bits.cycle
+			laddrbuf_p := laddrbuf_p + Bits(1)
+		}.otherwise{}
+	}.otherwise{}
+
+	//this is for debug
+	when(cmd.fire()){
+		staraddrs(staraddrs_p(log2Up(bufsize)-1,0)) := saddrbuf(saddrbuf_p-Bits(1))
+		staraddrs_p := staraddrs_p + Bits(1)
+		
+		ltaraddrs(ltaraddrs_p(log2Up(bufsize)-1,0)) := laddrbuf(laddrbuf_p-Bits(1))
+		ltaraddrs_p := ltaraddrs_p + Bits(1)
+	}.otherwise{}
+	
+	val taraddr_recorded=Reg(init = Bool(false))
+	when(cmd.valid && cmd.ready){
+		when(!taraddr_recorded){
+			staraddr := saddrbuf(saddrbuf_p-Bits(1))
+			ltaraddr := laddrbuf(laddrbuf_p-Bits(1))
+		}
+		taraddr_recorded := Bool(false)
+	}.elsewhen(cmd.valid && !cmd.ready){
+		when(!taraddr_recorded){
+			taraddr_recorded := Bool(true)
+			staraddr := saddrbuf(saddrbuf_p-Bits(1))
+			ltaraddr := laddrbuf(laddrbuf_p-Bits(1))
+		}
+	}.otherwise{}
+	
+	//recieve func request
+	//note that func req and st/ld req may come at the same cycle, accually it is func req is earlier than st/ld req, because the delay
+	//funcmode 2, iscall 1, callremain 1, id 16, retpointer 64, arg0-2 64*3,
+	when(fifofuncmax < fifofunccount){
+		fifofuncmax := fifofunccount
+	}.otherwise{}
+	
+	when(fifofunc.io.enq.fire() && fifofunc.io.deq.fire()){
+	}.elsewhen(fifofunc.io.enq.fire()){
+		fifofunccount := fifofunccount + Bits(1)
+	}.elsewhen(fifofunc.io.deq.fire()){
+		when(fifofunccount > Bits(0)){
+			fifofunccount := fifofunccount - Bits(1)
+		}
+	}.otherwise{}
+
+	when(fifofunc.io.enq.fire()){
+		fifofuncpush_cycle := fifofuncpush_cycle + Bits(1)
+		fifofuncenqvalid := Bool(false)
+		waitinginfifofunc := Bool(false)
+		busyfunc := Bool(false)
+	}.elsewhen(waitinginfifofunc){
+		fifofuncpush_cycle := fifofuncpush_cycle + Bits(1)
+		busyfunc := Bool(true)
+	}.otherwise{
+		busyfunc := Bool(false)
+	}
+	//receive func FIFO
+	when(fifofunc.io.deq.fire()){
+		fifofuncbranchpop := fifofuncbranchpop + Bits(1)
+		fifofuncdeqready := Bool(false)
+		waitingcallfifo := Bool(false)
+		when(fifofunc.io.deq.bits(64*4+17) === Bits(1)){//call
+			when((fifofunc.io.deq.bits(64*3-1,64*2) & UInt((1<<addrshift)-1)) > UInt(0)){
+				totalfunccount(0) := (fifofunc.io.deq.bits(64*3-1,64*2)>>addrshift)+UInt(1)
+			}.otherwise{
+				totalfunccount(0) := (fifofunc.io.deq.bits(64*3-1,64*2)>>addrshift)
+			}
+			
+			id(1):=fifofunc.io.deq.bits(64*4+16-1,64*4)
+			funcmode(1) := fifofunc.io.deq.bits(64*4+19,64*4+18)
+			callremain(1) := fifofunc.io.deq.bits(64*4+16)
+			funciscall(0) := Bool(true)
+			funcarg0(0) := fifofunc.io.deq.bits(64*1-1,0)
+			funcarg1(0) := fifofunc.io.deq.bits(64*2-1,64*1)
+			funcarg2(0) := fifofunc.io.deq.bits(64*3-1,64*2)
+			//funcretaddr(0) := io.dfi.bits.funcretaddr
+			funcretpointer(0) := fifofunc.io.deq.bits(64*4-1,64*3) //return address's pointer
+			brremain(0) := Bool(true)
+			
+			printf(">>>>> 2.5 func FIFO OUT, @%x\n",io.dfi.bits.cycle_now)
+			printf("function call, from FIFO, %x\n",fifofunc.io.deq.bits)
+			printf("<<<<< 2.5\n")
+			brneedprocess(0) := Bool(true)
+		}.otherwise{//ret
+			
+			funcmode(1) := fifofunc.io.deq.bits(64*4+19,64*4+18)
+			callremain(1) := fifofunc.io.deq.bits(64*4+16)
+			funciscall(0) := Bool(false)
+			funcarg0(0) := UInt(0)
+			funcarg1(0) := UInt(0)
+			funcarg2(0) := UInt(0)
+			funcretpointer(0) := fifofunc.io.deq.bits(64*4-1,64*3) //return address's pointer
+			brremain(0) := Bool(true)
+			
+			printf(">>>>> 2.5 func FIFO OUT, @%x\n",io.dfi.bits.cycle_now)
+			printf("function ret, from FIFO, %x\n",fifofunc.io.deq.bits)
+			printf("<<<<< 2.5\n")
+			brneedprocess(0) := Bool(true)
+		}
+	}
+	.otherwise{
+		when(state === Bits(IDLE) && slneedprocess === Bits(0) && !brneedprocess(0) && waitingcallfifo){
+			fifofuncdeqready := Bool(true)
+		}.otherwise{
+			fifofuncdeqready := Bool(false)
+		}
+		/*
+		when(fifofuncdeqready && timeout<UInt(maxtimeout)){
+			timeout := timeout + Bits(1)
+		}.elsewhen(fifofuncdeqready && timeout>=UInt(maxtimeout)){
+			fifofuncdeqready := Bool(false)
+			waitingcallfifo := Bool(false)
+			fifofuncloss := fifofuncloss + Bits(1)
+			fifofunclatestlossinfo := fifofunclatestinfo
+			fifofunclatestlosstaraddr := fifofunclatesttaraddr
+			fifofunclatestlosscuscount := fifocuscount
+			fifofunclatestlossfunccount := fifofunccount
+			fifofunclatestlossrecord := (fifofuncdeqready<<28)|(fifofuncenqvalid<<27)|(fifocusdeqready<<26)|(fifocusenqvalid<<25)|(waitinginfifofunc<<24)|(waitinginfifocus<<23)|(stallfunc<<22)|(busystld<<21)|(brneedprocess(0)<<20)|(slneedprocess<<18)|(waitingcallfifo<<17)|(waitingcall<<16)|state
+			timeout := Bits(0)
+		}.otherwise{
+			timeout := Bits(0)
+		}*/
+	}
+	
+	//receive st/ld request
+	when(fifocusmax < fifocuscount){
+		fifocusmax := fifocuscount
+	}.otherwise{}
+	
+	when(fifocustom.io.enq.fire() && fifocustom.io.deq.fire()){
+	}.elsewhen(fifocustom.io.enq.fire()){
+		fifocuscount := fifocuscount + Bits(1)
+	}.elsewhen(fifocustom.io.deq.fire()){
+		when(fifocuscount > Bits(0)){
+			fifocuscount := fifocuscount - Bits(1)
+		}
+	}.otherwise{}
+	
+	when(fifocustom.io.enq.fire()){
+		fifocuspush_cycle := fifocuspush_cycle + Bits(1)
+		fifocusenqvalid := Bool(false)
+		waitinginfifocus := Bool(false)
+		busystld := Bool(false)
+	}.elsewhen(waitinginfifocus){
+		fifocuspush_cycle := fifocuspush_cycle + Bits(1)
+		busystld := Bool(true)
+	}.otherwise{
+		busystld := Bool(false)
+	}
+	when(cmd.fire()){
+		fifocuspush_cycle := fifocuspush_cycle + Bits(1)
+		when(info(21,20) === UInt(1)){
+			//addrrdt := Bits(0x200074e010L)
+			when(!SIMULATION){
+				//addrrdt := Bits(0xe0400000L)
+				addrrdt := Bits(0xf4084000L+0x400000L)
+			}.otherwise{
+				when(taraddr_recorded){
+					addrrdt := staraddr//saddrbuf(saddrbuf_p-Bits(1))
+					printf("rdt: %x, (now cycle: %x)\n", staraddr,io.dfi.bits.cycle_now)//saddrbuf(saddrbuf_p-Bits(1)))
+				}.otherwise{
+					addrrdt := saddrbuf(saddrbuf_p-Bits(1))
+					printf("rdt: %x, (now cycle: %x)\n", saddrbuf(saddrbuf_p-Bits(1)),io.dfi.bits.cycle_now)
+				}
+			}
+		}
+		.elsewhen(info(21,20) === UInt(2)){
+			//addrrds := Bits(0x200474f010L)
+			when(!SIMULATION){
+				//addrrds := Bits(0xe4400000L)
+				addrrds := Bits(0xf4084000L+0x4400000L)
+			}.otherwise{
+				when(taraddr_recorded){
+					addrrds := staraddr//saddrbuf(saddrbuf_p-Bits(1))
+					printf("rds: %x\n", staraddr)//saddrbuf(saddrbuf_p-Bits(1)))
+				}.otherwise{
+					addrrds := saddrbuf(saddrbuf_p-Bits(1))
+					printf("rds: %x\n", saddrbuf(saddrbuf_p-Bits(1)))
+				}
+			}
+		}.elsewhen(info(21,20) === UInt(3)){
+			//addrdebug := Bits(0x200034d010L)
+			when(info(17) === Bits(1)){
+				
+			}.elsewhen(info(18) === Bits(1)){
+				fifocusdatain := info
+				waitinginfifocus := Bool(true)
+				fifocusenqvalid := Bool(true)
+				busystld := Bool(true)
+			}.otherwise{
+				when(!SIMULATION){
+					//addrdebug := Bits(0xe0000000L)
+					addrdebug := Bits(0xf4084000L)
+				}.otherwise{
+					when(taraddr_recorded){
+						addrdebug := staraddr//saddrbuf(saddrbuf_p-Bits(1))
+						printf("debug buffer: %x\n", staraddr)//saddrbuf(saddrbuf_p-Bits(1)))
+					}.otherwise{
+						addrdebug := saddrbuf(saddrbuf_p-Bits(1))
+						printf("debug buffer: %x\n", saddrbuf(saddrbuf_p-Bits(1)))
+					}
+				}
+				fifocusdatain := info
+				waitinginfifocus := Bool(true)
+				fifocusenqvalid := Bool(true)
+				busystld := Bool(true)
+			}
+		}.otherwise{
+			when(info(21,20) === UInt(0) && addrrdt =/= Bits(0) && addrrds =/= Bits(0) && addrdebug =/= Bits(0)){
+				printf(">>>>> 1 ld/st FIFO IN, @%x\n",io.dfi.bits.cycle_now)
+				printf("DFI request recieved\n")
+				printf("info: %x\n",info)
+				printf("thread pointer %x\n",io.dfi.bits.threadptr)
+				printf("%x/%x DFI process errors\n",errorcount,totalcount)
+				printf("return address: %x, stack address: %x, func arg0: %x, func arg1: %x, func arg2: %x\n",io.dfi.bits.funcretaddr,io.dfi.bits.funcstackaddr,io.dfi.bits.funcarg0,io.dfi.bits.funcarg1,io.dfi.bits.funcarg2)
+				printf("<<<<< 1 \n")
+				when(info(19,17) > UInt(0)){
+					fifocusbranchpush := fifocusbranchpush + Bits(1)
+					fifocusdatain := (((fifofuncdeqready<<28)|(fifofuncenqvalid<<27)|(fifocusdeqready<<26)|(fifocusenqvalid<<25)|(waitinginfifofunc<<24)|(waitinginfifocus<<23)|(stallfunc<<22)|(busystld<<21)|(brneedprocess(0)<<20)|(slneedprocess<<18)|(waitingcallfifo<<17)|(waitingcall<<16)|state)<<(22+8))|(fifocuscount<<22)|info
+					when(info(16) === Bits(0)){
+						fifofuncbranchpush := fifofuncbranchpush + Bits(1)
+						fifofuncdatain := (info(18,17)<<(64*4+18))|(Bits(1)<<(64*4+17))|(Mux(info(18,17) > Bits(0),Bits(1),Bits(0))<<(64*4+16))|(info(15,0)<<(64*4))|((io.dfi.bits.funcstackaddr - UInt(8))<<(64*3))|(io.dfi.bits.funcarg2<<(64*2))|(io.dfi.bits.funcarg1<<UInt(64))|(io.dfi.bits.funcarg0)
+						printf(">>>>> 1.5 func FIFO IN, @%x\n",io.dfi.bits.cycle_now)
+						printf("function call, to %x\n",io.dfi.bits.brtarget)
+						printf("return address: %x, stack address: %x, func arg0: %x, func arg1: %x, func arg2: %x\n",io.dfi.bits.funcretaddr,io.dfi.bits.funcstackaddr,io.dfi.bits.funcarg0,io.dfi.bits.funcarg1,io.dfi.bits.funcarg2)
+						printf("push to FIFO: %x\n",(info(18,17)<<(64*4+18))|(Bits(1)<<(64*4+17))|(Mux(info(18,17) > Bits(0),Bits(1),Bits(0))<<(64*4+16))|(info(15,0)<<(64*4))|((io.dfi.bits.funcstackaddr - UInt(8))<<(64*3))|(io.dfi.bits.funcarg2<<(64*2))|(io.dfi.bits.funcarg1<<UInt(64))|(io.dfi.bits.funcarg0))
+						printf("<<<<< 1.5\n")
+					}.otherwise{
+						fifofuncbranchpush := fifofuncbranchpush + Bits(1)
+						fifofuncdatain := (info(18,17)<<(64*4+18))|(Bits(0)<<(64*4+17))|(Mux(info(18,17) > Bits(0),Bits(1),Bits(0))<<(64*4+16))|(info(15,0)<<(64*4))|((io.dfi.bits.funcstackaddr - UInt(8))<<(64*3))
+						printf(">>>>> 1.5 func FIFO IN, @%x\n",io.dfi.bits.cycle_now)
+						printf("function return, to %x\n",io.dfi.bits.brtarget)
+						printf("return address: %x, stack address: %x, func arg0: %x, func arg1: %x, func arg2: %x\n",io.dfi.bits.funcretaddr,io.dfi.bits.funcstackaddr,io.dfi.bits.funcarg0,io.dfi.bits.funcarg1,io.dfi.bits.funcarg2)
+						printf("push to FIFO: %x\n",(info(18,17)<<(64*4+18))|(Bits(0)<<(64*4+17))|(Mux(info(18,17) > Bits(0),Bits(1),Bits(0))<<(64*4+16))|(info(15,0)<<(64*4))|((io.dfi.bits.funcstackaddr - UInt(8))<<(64*3)))
+						printf("<<<<< 1.5\n")
+					}
+					waitinginfifofunc := Bool(true)
+					fifofuncenqvalid := Bool(true)
+					busyfunc := Bool(true)
+					
+					when(info(16) === Bits(0) && info(18,17) > Bits(0) && maxliblen<(io.dfi.bits.funcarg2>>addrshift)){
+						maxlibarg0 := io.dfi.bits.funcarg0
+						maxlibarg1 := io.dfi.bits.funcarg1
+						maxlibarg2 := io.dfi.bits.funcarg2
+						maxlibarg3 := io.dfi.bits.funcarg3
+						maxlibarg4 := io.dfi.bits.funcarg4
+						maxlibarg5 := info
+						maxlibretaddr := io.dfi.bits.funcretaddr
+						maxlibretptr := io.dfi.bits.funcstackaddr
+						maxliblen := io.dfi.bits.funcarg2>>addrshift
+					}.otherwise{}
+					
+				}.elsewhen(info(16) === UInt(0)){
+					when(taraddr_recorded){
+						fifocusdatain := (staraddr<<22)|info
+					}.otherwise{
+						fifocusdatain := (saddrbuf(saddrbuf_p-Bits(1))<<22)|info
+					}
+				}.otherwise{//ld
+					when(taraddr_recorded){
+						fifocusdatain := (ltaraddr<<22)|info
+					}.otherwise{
+						fifocusdatain := (laddrbuf(laddrbuf_p-Bits(1))<<22)|info
+					}
+				}
+				waitinginfifocus := Bool(true)
+				fifocusenqvalid := Bool(true)
+				busystld := Bool(true)
+			}
+		}
+	}
+	//receive st/ld FIFO
+	when(fifocustom.io.deq.fire()){
+		fifocusdeqready := Bool(false)
+		when(fifocustom.io.deq.bits(21,20) === UInt(1)){
+		}.elsewhen(fifocustom.io.deq.bits(21,20) === UInt(2)){
+		}.elsewhen(fifocustom.io.deq.bits(21,20) === UInt(3)){
+			printf(">>>>> 2 FUNC FIFO OUT, @%x\n",io.dfi.bits.cycle_now)
+			printf("info: %x\n",fifocustom.io.deq.bits)
+			printf("<<<<< 2\n")
+			when(fifocustom.io.deq.bits(18)){
+				infor := fifocustom.io.deq.bits
+				slneedprocess := Bits(2)
+			}.otherwise{
+				infor := fifocustom.io.deq.bits
+				rdsmapcwaddr := Bits(0)//ready to reset rdsmapcache
+				rdsmapcdatain := Bits(0)
+				rdtcwaddr := Bits(0)
+				rdtcdatain := Bits(0)
+				rdscwaddr := Bits(0)
+				rdscdatain := Bits(0)
+				fifocusbranchpush := Bits(0)
+				fifocusbranchpop := Bits(0)
+				fifofuncbranchpush := Bits(0)
+				fifofuncbranchpop := Bits(0)
+				fifofuncloss := Bits(0)
+				fifocusmax := Bits(0)
+				fifofuncmax := Bits(0)
+				stop_call_count := Bits(0)
+				
+				slneedprocess := Bits(2)
+				
+				when(fifocustom.io.deq.bits(19) === UInt(1)){//debug
+					printf("WRTIE LOAD TRACE\n")
+					ldstate := Bits(WRITELDTRACE)
+				}.otherwise{
+					ldstate := Bits(READRDSMAP)
+				}
+				rdtreaddebug_p := Bits(0)
+			}
+		}.elsewhen(fifocustom.io.deq.bits(21,20) === UInt(0) && addrrdt =/= Bits(0) && addrrds =/= Bits(0) && addrdebug =/= Bits(0)){
+			printf(">>>>> 2 FUNC FIFO OUT, @%x\n",io.dfi.bits.cycle_now)
+			printf("info: %x\n",fifocustom.io.deq.bits)
+			printf("<<<<< 2\n")
+			infor := fifocustom.io.deq.bits
+			when(fifocustom.io.deq.bits(19,17) > UInt(0)){
+				fifocusbranchpop := fifocusbranchpop + Bits(1)
+				waitingcallfifo := Bool(true)
+				fifofunclatestinfo := fifocustom.io.deq.bits(21,0)
+				fifofunclatesttaraddr := fifocustom.io.deq.bits(22+64-1,22)
+			}.elsewhen(fifocustom.io.deq.bits(16) === UInt(0)){
+				taraddr(0) := fifocustom.io.deq.bits(64+22-1,22)
+				slneedprocess := Bits(2)
+			}.otherwise{//ld
+				taraddr(0) := fifocustom.io.deq.bits(64+22-1,22)
+				slneedprocess := Bits(2)
+			}
+		}
+		.otherwise{}
+	}
+	.otherwise{
+		when(state === Bits(IDLE) && slneedprocess === Bits(0) && !brneedprocess(0) && !waitingcallfifo){
+			fifocusdeqready := Bool(true)
+		}.otherwise{
+			fifocusdeqready := Bool(false)
+		}
+	}
+	/*
+	//lat check
+	//1st lat check----------call
+	when(lat_call_state===Bits(LAT_IDLE)){
+		when(cmd.fire()){
+			when(info(21,20) === UInt(1)){
+				//addrrdt := Bits(0x200074e010L)
+			}.elsewhen(info(21,20) === UInt(2)){
+				//addrrds := Bits(0x200474f010L)
+			}.elsewhen(info(21,20) === UInt(3)){
+				//addrdebug := Bits(0x200034d010L)
+			}.otherwise{
+				when(info(21,20) === UInt(0) && addrrdt =/= Bits(0) && addrrds =/= Bits(0) && addrdebug =/= Bits(0)){
+					when(info(19,17) > UInt(0)){
+						when(info(16) === Bits(0)){//call
+							when(info(17)===UInt(0) && info(18)===UInt(0)){//normal call
+								lat_cate := Bits(0)
+								lat_call_count := lat_call_count + Bits(1)
+								lat_call_state := Bits(LAT_WAIT_ENQ)
+							}
+							when(!fifocustom.io.deq.fire()){
+								lat_call_fifo_red := fifocuscount + Bits(1)
+							}.otherwise{
+								lat_call_fifo_red := fifocuscount
+							}
+						}.otherwise{//ret
+						}
+					}.elsewhen(info(16) === UInt(0)){
+						//store
+					}.otherwise{
+						//ld
+					}
+				}
+			}
+		}.otherwise{}
+	}.elsewhen(lat_call_state===Bits(LAT_WAIT_ENQ)){
+		when(!io.corestalled){
+			lat_call_cycles := lat_call_cycles + Bits(1)
+		}
+		when(lat_call_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_call_fifo_red := lat_call_fifo_red - Bits(1)
+		}
+		when(fifocustom.io.enq.fire()){
+			lat_call_state := Bits(LAT_WAIT_POP)
+		}
+	}.elsewhen(lat_call_state===Bits(LAT_WAIT_POP)){
+		when(!io.corestalled){
+			lat_call_cycles := lat_call_cycles + Bits(1)
+		}
+		when(lat_call_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_call_fifo_red := lat_call_fifo_red - Bits(1)
+		}
+		when(lat_call_fifo_red===Bits(0)){
+			when(state===Bits(IDLE) && (slneedprocess === Bits(2) || brneedprocess(0))){
+				lat_call_state := Bits(LAT_WAIT_END)
+			}
+		}.otherwise{}
+	}.elsewhen(lat_call_state===Bits(LAT_WAIT_END)){
+		when(!io.corestalled){
+			lat_call_cycles := lat_call_cycles + Bits(1)
+		}
+		when(state===Bits(IDLE)){
+			lat_call_state := Bits(LAT_IDLE)
+		}
+	}.otherwise{
+		lat_call_state := Bits(LAT_IDLE)
+	}
+	//2nd lat check----------libst
+	when(lat_libst_state===Bits(LAT_IDLE)){
+		when(cmd.fire()){
+			when(info(21,20) === UInt(1)){
+				//addrrdt := Bits(0x200074e010L)
+			}.elsewhen(info(21,20) === UInt(2)){
+				//addrrds := Bits(0x200474f010L)
+			}.elsewhen(info(21,20) === UInt(3)){
+				//addrdebug := Bits(0x200034d010L)
+			}.otherwise{
+				when(info(21,20) === UInt(0) && addrrdt =/= Bits(0) && addrrds =/= Bits(0) && addrdebug =/= Bits(0)){
+					when(info(19,17) > UInt(0)){
+						when(info(16) === Bits(0)){//call
+							when(info(17)===UInt(1) && info(18)===UInt(0)){//write
+								lat_cate := Bits(1)
+								lat_libst_count := lat_libst_count + Bits(1)
+								lat_libst_state := Bits(LAT_WAIT_ENQ)
+							}
+							when(!fifocustom.io.deq.fire()){
+								lat_libst_fifo_red := fifocuscount + Bits(1)
+							}.otherwise{
+								lat_libst_fifo_red := fifocuscount
+							}
+						}.otherwise{//ret
+						}
+					}.elsewhen(info(16) === UInt(0)){
+						//store
+					}.otherwise{
+						//ld
+					}
+				}
+			}
+		}.otherwise{}
+	}.elsewhen(lat_libst_state===Bits(LAT_WAIT_ENQ)){
+		when(!io.corestalled){
+			lat_libst_cycles := lat_libst_cycles + Bits(1)
+		}
+		when(lat_libst_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_libst_fifo_red := lat_libst_fifo_red - Bits(1)
+		}
+		when(fifocustom.io.enq.fire()){
+			lat_libst_state := Bits(LAT_WAIT_POP)
+		}
+	}.elsewhen(lat_libst_state===Bits(LAT_WAIT_POP)){
+		when(!io.corestalled){
+			lat_libst_cycles := lat_libst_cycles + Bits(1)
+		}
+		when(lat_libst_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_libst_fifo_red := lat_libst_fifo_red - Bits(1)
+		}
+		when(lat_libst_fifo_red===Bits(0)){
+			when(state===Bits(IDLE) && (slneedprocess === Bits(2) || brneedprocess(0))){
+				lat_libst_state := Bits(LAT_WAIT_END)
+			}
+		}.otherwise{}
+	}.elsewhen(lat_libst_state===Bits(LAT_WAIT_END)){
+		when(!io.corestalled){
+			lat_libst_cycles := lat_libst_cycles + Bits(1)
+		}
+		when(state===Bits(IDLE)){
+			lat_libst_state := Bits(LAT_IDLE)
+		}
+	}.otherwise{
+		lat_libst_state := Bits(LAT_IDLE)
+	}
+	//3rd lat check----------libld
+	when(lat_libld_state===Bits(LAT_IDLE)){
+		when(cmd.fire()){
+			when(info(21,20) === UInt(1)){
+				//addrrdt := Bits(0x200074e010L)
+			}.elsewhen(info(21,20) === UInt(2)){
+				//addrrds := Bits(0x200474f010L)
+			}.elsewhen(info(21,20) === UInt(3)){
+				//addrdebug := Bits(0x200034d010L)
+			}.otherwise{
+				when(info(21,20) === UInt(0) && addrrdt =/= Bits(0) && addrrds =/= Bits(0) && addrdebug =/= Bits(0)){
+					when(info(19,17) > UInt(0)){
+						when(info(16) === Bits(0)){//call
+							when(info(17)===UInt(0) && info(18)===UInt(0)){//normal call
+							}.elsewhen(info(17)===UInt(1) && info(18)===UInt(0)){//write
+							}.elsewhen(info(17)===UInt(0) && info(18)===UInt(1)){//read
+								lat_cate := Bits(2)
+								lat_libld_count := lat_libld_count + Bits(1)
+								lat_libld_state := Bits(LAT_WAIT_ENQ)
+							}.otherwise{
+							}
+							when(!fifocustom.io.deq.fire()){
+								lat_libld_fifo_red := fifocuscount + Bits(1)
+							}.otherwise{
+								lat_libld_fifo_red := fifocuscount
+							}
+						}.otherwise{//ret
+						}
+					}.elsewhen(info(16) === UInt(0)){
+						//store
+					}.otherwise{
+						//ld
+					}
+				}
+			}
+		}.otherwise{}
+	}.elsewhen(lat_libld_state===Bits(LAT_WAIT_ENQ)){
+		when(!io.corestalled){
+			lat_libld_cycles := lat_libld_cycles + Bits(1)
+		}
+		when(lat_libld_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_libld_fifo_red := lat_libld_fifo_red - Bits(1)
+		}
+		when(fifocustom.io.enq.fire()){
+			lat_libld_state := Bits(LAT_WAIT_POP)
+		}
+	}.elsewhen(lat_libld_state===Bits(LAT_WAIT_POP)){
+		when(!io.corestalled){
+			lat_libld_cycles := lat_libld_cycles + Bits(1)
+		}
+		when(lat_libld_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_libld_fifo_red := lat_libld_fifo_red - Bits(1)
+		}
+		when(lat_libld_fifo_red===Bits(0)){
+			when(state===Bits(IDLE) && (slneedprocess === Bits(2) || brneedprocess(0))){
+				lat_libld_state := Bits(LAT_WAIT_END)
+			}
+		}.otherwise{}
+	}.elsewhen(lat_libld_state===Bits(LAT_WAIT_END)){
+		when(!io.corestalled){
+			lat_libld_cycles := lat_libld_cycles + Bits(1)
+		}
+		when(state===Bits(IDLE)){
+			lat_libld_state := Bits(LAT_IDLE)
+		}
+	}.otherwise{
+		lat_libld_state := Bits(LAT_IDLE)
+	}
+	//4th lat check----------libstld
+	when(lat_libstld_state===Bits(LAT_IDLE)){
+		when(cmd.fire()){
+			when(info(21,20) === UInt(1)){
+				//addrrdt := Bits(0x200074e010L)
+			}.elsewhen(info(21,20) === UInt(2)){
+				//addrrds := Bits(0x200474f010L)
+			}.elsewhen(info(21,20) === UInt(3)){
+				//addrdebug := Bits(0x200034d010L)
+			}.otherwise{
+				when(info(21,20) === UInt(0) && addrrdt =/= Bits(0) && addrrds =/= Bits(0) && addrdebug =/= Bits(0)){
+					when(info(19,17) > UInt(0)){
+						when(info(16) === Bits(0)){//call
+							when(info(17)===UInt(0) && info(18)===UInt(0)){//normal call
+							}.elsewhen(info(17)===UInt(1) && info(18)===UInt(0)){//write
+							}.elsewhen(info(17)===UInt(0) && info(18)===UInt(1)){//read
+							}.otherwise{
+								lat_cate := Bits(3)
+								lat_libstld_count := lat_libstld_count + Bits(1)
+								lat_libstld_state := Bits(LAT_WAIT_ENQ)
+							}
+							when(!fifocustom.io.deq.fire()){
+								lat_libstld_fifo_red := fifocuscount + Bits(1)
+							}.otherwise{
+								lat_libstld_fifo_red := fifocuscount
+							}
+						}.otherwise{//ret
+						}
+					}.elsewhen(info(16) === UInt(0)){
+						//store
+					}.otherwise{
+						//ld
+					}
+				}
+			}
+		}.otherwise{}
+	}.elsewhen(lat_libstld_state===Bits(LAT_WAIT_ENQ)){
+		when(!io.corestalled){
+			lat_libstld_cycles := lat_libstld_cycles + Bits(1)
+		}
+		when(lat_libstld_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_libstld_fifo_red := lat_libstld_fifo_red - Bits(1)
+		}
+		when(fifocustom.io.enq.fire()){
+			lat_libstld_state := Bits(LAT_WAIT_POP)
+		}
+	}.elsewhen(lat_libstld_state===Bits(LAT_WAIT_POP)){
+		when(!io.corestalled){
+			lat_libstld_cycles := lat_libstld_cycles + Bits(1)
+		}
+		when(lat_libstld_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_libstld_fifo_red := lat_libstld_fifo_red - Bits(1)
+		}
+		when(lat_libstld_fifo_red===Bits(0)){
+			when(state===Bits(IDLE) && (slneedprocess === Bits(2) || brneedprocess(0))){
+				lat_libstld_state := Bits(LAT_WAIT_END)
+			}
+		}.otherwise{}
+	}.elsewhen(lat_libstld_state===Bits(LAT_WAIT_END)){
+		when(!io.corestalled){
+			lat_libstld_cycles := lat_libstld_cycles + Bits(1)
+		}
+		when(state===Bits(IDLE)){
+			lat_libstld_state := Bits(LAT_IDLE)
+		}
+	}.otherwise{
+		lat_libstld_state := Bits(LAT_IDLE)
+	}
+	//5th lat check----------ret
+	when(lat_ret_state===Bits(LAT_IDLE)){
+		when(cmd.fire()){
+			when(info(21,20) === UInt(1)){
+				//addrrdt := Bits(0x200074e010L)
+			}.elsewhen(info(21,20) === UInt(2)){
+				//addrrds := Bits(0x200474f010L)
+			}.elsewhen(info(21,20) === UInt(3)){
+				//addrdebug := Bits(0x200034d010L)
+			}.otherwise{
+				when(info(21,20) === UInt(0) && addrrdt =/= Bits(0) && addrrds =/= Bits(0) && addrdebug =/= Bits(0)){
+					when(info(19,17) > UInt(0)){
+						when(info(16) === Bits(0)){//call
+						}.otherwise{//ret
+							when(!fifocustom.io.deq.fire()){
+								lat_ret_fifo_red := fifocuscount + Bits(1)
+							}.otherwise{
+								lat_ret_fifo_red := fifocuscount
+							}
+							lat_cate := Bits(4)
+							lat_ret_count := lat_ret_count + Bits(1)
+							lat_ret_state := Bits(LAT_WAIT_ENQ)
+						}
+					}.elsewhen(info(16) === UInt(0)){
+						//store
+					}.otherwise{
+						//ld
+					}
+				}
+			}
+		}.otherwise{}
+	}.elsewhen(lat_ret_state===Bits(LAT_WAIT_ENQ)){
+		when(!io.corestalled){
+			lat_ret_cycles := lat_ret_cycles + Bits(1)
+		}
+		when(lat_ret_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_ret_fifo_red := lat_ret_fifo_red - Bits(1)
+		}
+		when(fifocustom.io.enq.fire()){
+			lat_ret_state := Bits(LAT_WAIT_POP)
+		}
+	}.elsewhen(lat_ret_state===Bits(LAT_WAIT_POP)){
+		when(!io.corestalled){
+			lat_ret_cycles := lat_ret_cycles + Bits(1)
+		}
+		when(lat_ret_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_ret_fifo_red := lat_ret_fifo_red - Bits(1)
+		}
+		when(lat_ret_fifo_red===Bits(0)){
+			when(state===Bits(IDLE) && (slneedprocess === Bits(2) || brneedprocess(0))){
+				lat_ret_state := Bits(LAT_WAIT_END)
+			}
+		}.otherwise{}
+	}.elsewhen(lat_ret_state===Bits(LAT_WAIT_END)){
+		when(!io.corestalled){
+			lat_ret_cycles := lat_ret_cycles + Bits(1)
+		}
+		when(state===Bits(IDLE)){
+			lat_ret_state := Bits(LAT_IDLE)
+		}
+	}.otherwise{
+		lat_ret_state := Bits(LAT_IDLE)
+	}
+	//6th lat check----------st
+	when(lat_st_state===Bits(LAT_IDLE)){
+		when(cmd.fire()){
+			when(info(21,20) === UInt(1)){
+				//addrrdt := Bits(0x200074e010L)
+			}.elsewhen(info(21,20) === UInt(2)){
+				//addrrds := Bits(0x200474f010L)
+			}.elsewhen(info(21,20) === UInt(3)){
+				//addrdebug := Bits(0x200034d010L)
+			}.otherwise{
+				when(info(21,20) === UInt(0) && addrrdt =/= Bits(0) && addrrds =/= Bits(0) && addrdebug =/= Bits(0)){
+					when(info(19,17) > UInt(0)){
+					}.elsewhen(info(16) === UInt(0)){
+						//store
+						when(!fifocustom.io.deq.fire()){
+							lat_st_fifo_red := fifocuscount + Bits(1)
+						}.otherwise{
+							lat_st_fifo_red := fifocuscount
+						}
+						lat_cate := Bits(5)
+						lat_st_count := lat_st_count + Bits(1)
+						lat_st_state := Bits(LAT_WAIT_ENQ)
+					}.otherwise{
+						//ld
+					}
+				}
+			}
+		}.otherwise{}
+	}.elsewhen(lat_st_state===Bits(LAT_WAIT_ENQ)){
+		when(!io.corestalled){
+			lat_st_cycles := lat_st_cycles + Bits(1)
+		}
+		when(lat_st_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_st_fifo_red := lat_st_fifo_red - Bits(1)
+		}
+		when(fifocustom.io.enq.fire()){
+			lat_st_state := Bits(LAT_WAIT_POP)
+		}
+	}.elsewhen(lat_st_state===Bits(LAT_WAIT_POP)){
+		when(!io.corestalled){
+			lat_st_cycles := lat_st_cycles + Bits(1)
+		}
+		when(lat_st_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_st_fifo_red := lat_st_fifo_red - Bits(1)
+		}
+		when(lat_st_fifo_red===Bits(0)){
+			when(state===Bits(IDLE) && (slneedprocess === Bits(2) || brneedprocess(0))){
+				lat_st_state := Bits(LAT_WAIT_END)
+			}
+		}.otherwise{}
+	}.elsewhen(lat_st_state===Bits(LAT_WAIT_END)){
+		when(!io.corestalled){
+			lat_st_cycles := lat_st_cycles + Bits(1)
+		}
+		when(state===Bits(IDLE)){
+			lat_st_state := Bits(LAT_IDLE)
+		}
+	}.otherwise{
+		lat_st_state := Bits(LAT_IDLE)
+	}
+	//7th lat check----------ld
+	when(lat_ld_state===Bits(LAT_IDLE)){
+		when(cmd.fire()){
+			when(info(21,20) === UInt(1)){
+				//addrrdt := Bits(0x200074e010L)
+			}.elsewhen(info(21,20) === UInt(2)){
+				//addrrds := Bits(0x200474f010L)
+			}.elsewhen(info(21,20) === UInt(3)){
+				//addrdebug := Bits(0x200034d010L)
+			}.otherwise{
+				when(info(21,20) === UInt(0) && addrrdt =/= Bits(0) && addrrds =/= Bits(0) && addrdebug =/= Bits(0)){
+					when(info(19,17) > UInt(0)){
+					}.elsewhen(info(16) === UInt(0)){
+						//store
+					}.otherwise{
+						//ld
+						when(!fifocustom.io.deq.fire()){
+							lat_ld_fifo_red := fifocuscount + Bits(1)
+						}.otherwise{
+							lat_ld_fifo_red := fifocuscount
+						}
+						lat_cate := Bits(6)
+						lat_ld_count := lat_ld_count + Bits(1)
+						lat_ld_state := Bits(LAT_WAIT_ENQ)
+					}
+				}
+			}
+		}.otherwise{}
+	}.elsewhen(lat_ld_state===Bits(LAT_WAIT_ENQ)){
+		when(!io.corestalled){
+			lat_ld_cycles := lat_ld_cycles + Bits(1)
+		}
+		when(lat_ld_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_ld_fifo_red := lat_ld_fifo_red - Bits(1)
+		}
+		when(fifocustom.io.enq.fire()){
+			lat_ld_state := Bits(LAT_WAIT_POP)
+		}
+	}.elsewhen(lat_ld_state===Bits(LAT_WAIT_POP)){
+		when(!io.corestalled){
+			lat_ld_cycles := lat_ld_cycles + Bits(1)
+		}
+		when(lat_ld_fifo_red>Bits(0) && fifocustom.io.deq.fire()){
+			lat_ld_fifo_red := lat_ld_fifo_red - Bits(1)
+		}
+		when(lat_ld_fifo_red===Bits(0)){
+			when(state===Bits(IDLE) && (slneedprocess === Bits(2) || brneedprocess(0))){
+				lat_ld_state := Bits(LAT_WAIT_END)
+			}
+		}.otherwise{}
+	}.elsewhen(lat_ld_state===Bits(LAT_WAIT_END)){
+		when(!io.corestalled){
+			lat_ld_cycles := lat_ld_cycles + Bits(1)
+		}
+		when(state===Bits(IDLE)){
+			lat_ld_state := Bits(LAT_IDLE)
+		}
+	}.otherwise{
+		lat_ld_state := Bits(LAT_IDLE)
+	}
+	*/
+	//ldopt
+	when(fifofunc.io.deq.fire()){
+		ldopt_rst := Bool(true)
+		ldopt_red := Bool(false)
+	}.elsewhen(fifocustom.io.deq.fire() && fifocustom.io.deq.bits(21,20) =/= UInt(0)){
+		ldopt_rst := Bool(true)
+		ldopt_red := Bool(false)
+	}.elsewhen(fifocustom.io.deq.fire() && fifocustom.io.deq.bits(21,20) === UInt(0) && addrrdt =/= Bits(0) && addrrds =/= Bits(0) && addrdebug =/= Bits(0)){
+		ldopt_rst := Bool(false)
+		ldopt_rw := fifocustom.io.deq.bits(16)
+		ldopt_id := fifocustom.io.deq.bits(15,0)
+		when(fifocustom.io.deq.bits(16)===Bits(0)){
+			ldopt_taraddr := fifocustom.io.deq.bits(64+22-1,22)
+		}.otherwise{
+			ldopt_taraddr := fifocustom.io.deq.bits(64+22-1,22)
+		}
+		ldopt_red := Bool(false)
+	}.otherwise{
+		when(ldoptbuf.io.red && ldopt_id =/= Bits(0)){
+			ldopt_red := Bool(true)
+			printf("!!!!!!!! redundant ld\n")
+		}
+		ldopt_rst := Bool(false)
+		ldopt_rw := Bits(0)
+		ldopt_id := Bits(0)
+		ldopt_taraddr := Bits(0)
+	}
+	
+	when(cmd.fire() && info(21,20) === UInt(3) && info(18) =/= Bits(1)){
+		total_cycle := Bits(0)
+	}.otherwise{
+		total_cycle := total_cycle + Bits(1)
+	}
+	
+	when(cmd.fire() && info(21,20) === UInt(3) && info(18) =/= Bits(1)){
+		idle_cycle := Bits(0)
+	}.elsewhen(state === Bits(IDLE)){
+		idle_cycle := idle_cycle + Bits(1)
+	}.otherwise{}
+	
+	when(shdstkaddr>shdstackmax){
+		shdstackmax := shdstkaddr
+	}.otherwise{}
+	
+	//stop the program
+	when(cmd.fire() && info(21,20) === UInt(3) && info(17) === UInt(1)){
+		printf("CALL COUNT SIGNAL\n")
+		when(stop_call_count_max > Bits(0)){
+			printf("current stop count: %x\n",stop_call_count)
+			stop_call_count := stop_call_count + Bits(1)
+			stop_call_count_all := stop_call_count_all + Bits(1)
+		}
+	}
+	/*
+	when(io.dfi.bits.callvalid && (!stop_repcall || stop_brtarget =/= io.dfi.bits.brtarget)){
+		stop_repcall := Bool(true)
+		stop_brtarget := io.dfi.bits.brtarget
+		when(stop_call_count_max > Bits(0)){
+			stop_call_count := stop_call_count + Bits(1)
+			stop_call_count_all := stop_call_count_all + Bits(1)
+		}
+	}.elsewhen(io.dfi.bits.retvalid && (!stop_repcall || stop_brtarget =/= io.dfi.bits.brtarget)){
+		stop_repcall := Bool(false)
+		stop_brtarget := io.dfi.bits.brtarget
+	}.elsewhen(!io.dfi.bits.callvalid && !io.dfi.bits.retvalid){
+		stop_repcall := Bool(true)
+	}.otherwise{}
+	*/
+	when(stop_call_count_max > Bits(0) && stop_call_count >= stop_call_count_max){
+		stop_call_count_max := Bits(0)
+		stop_call_count := Bits(0)
+		printf("EXCEPTION!!!\n")
+		stop_coreexception := Bool(true)
+	}
+	.elsewhen(stop_coreexception){
+		printf("WAIT FOR NEXT CUSTOM TO STOP\n")
+		when(io.canexception){
+			stop_coreexception := Bool(false)
+		}.otherwise{}
+	}
+	/*.elsewhen(stop_coreexception && stop_call_count_keep < Bits(5)){
+		stop_call_count_keep := stop_call_count_keep + Bits(1)
+	}*/
+	.otherwise{
+		stop_call_count_keep := Bits(0)
+		stop_coreexception := Bool(false)
+	}
+	
+	//++++++++++++++++++++++FSM++++++++++++++++++
+	when(state === Bits(IDLE)){
+		stallfunc := Bool(false)
+		memtag := Bits(0)
+		memtype := Bits(3)
+		count := Bits(0)
+		memvalid := Bool(false)
+		memw := Bool(false)
+		nstate := Bits(IDLE)
+		pstate := Bits(IDLE)
+		matched := Bool(true)
+		waitresp := Bool(false)
+		when(~matched){
+			violations := violations + Bits(1)
+			printf("IDLESTATE: violation\n");
+		}.otherwise{}
+		when(haserror){
+			errorcount := errorcount + Bits(1)
+			haserror := Bool(false)
+		}
+		
+		when(brneedprocess(0)){//need to process a function call
+			brneedprocess(0) := Bool(false)
+			brneedprocess(1) := brneedprocess(0)
+			
+			totalcount := totalcount + Bits(1)
+			totalcallcount := totalcallcount + Bits(1)
+			printf("---------------DFI process begin --------FUNC, @%x\n",io.dfi.bits.cycle_now)
+			printf("normal function call/ret? %x, is call? %x, is lib? %x, mode: %x\n",brremain(0),funciscall(0),callremain(1),funcmode(1))
+			printf("return address pointer: %x arg0: %x, arg1: %x, arg2: %x\n",funcretpointer(0),funcarg0(0),funcarg1(0),funcarg2(0))
+			printf("custom inst fire? %x\n",cmd.fire())
+			printf("%x/%x DFI process errors\n",errorcount,totalcount)
+			
+			id(2):=id(1)
+			funccount := totalfunccount(0)
+			totalfunccount(1) := totalfunccount(0)
+			funcmode(2) := funcmode(1)
+			callremain(2) := callremain(1)
+			funciscall(1) := funciscall(0)
+			brtarget(1) := brtarget(0)
+			funcarg0(1) := funcarg0(0)
+			funcarg1(1) := funcarg1(0)
+			funcarg2(1) := funcarg2(0)
+			funcretaddr(1) := funcretaddr(0)
+			funcretpointer(1) := funcretpointer(0)
+			brremain(1) := brremain(0)
+			
+			when(brremain(0)){
+				when(funciscall(0)){
+					when(funcmode(1) >= Bits(2)){
+						//stallfunc := Bool(true)
+					}
+					/*
+					shdstkaddr := shdstkaddr + Bits(1)
+					when(shdstkcount < shdstacksize){
+						shdstkaddr := shdstkcount
+						shdstkcount := shdstkcount + Bits(1)
+						sdhstkdatain := 
+					}.otherwise{
+						
+					}*/
+					val rdtentry = (((funcretpointer(0)>>addrshift)&Bits(addrmask))<<1)(61,3)
+					rdtcraddr := rdtentry&rdtcacheaddrmask
+					
+					memaddr := addrrdt+(((funcretpointer(0)>>addrshift)&Bits(addrmask))<<1)
+					memtype := Bits(1)
+					memtag := Bits(2)
+					memw := Bool(true)
+					memvalid := Bool(true)
+					memdatain := Bits(0xffff)
+				
+					state := Bits(WRITERDT)
+				}.otherwise{
+					val rdtentry = (((funcretpointer(0)>>addrshift)&Bits(addrmask))<<1)(61,3)
+					rdtcraddr := rdtentry&rdtcacheaddrmask
+					rdtcprobing := Bool(true)
+					
+					val realaddr = addrrdt+(((funcretpointer(0)>>addrshift)&Bits(addrmask))<<1)
+					memaddr := realaddr(61,3)<<3
+					memaddrmod := realaddr(2,0)
+					memtype := Bits(3)
+					memtag := Bits(2)
+					memw := Bool(false)
+					memvalid := Bool(false)
+					
+					state := Bits(READRDT)//skip READRDSMAP because no need
+				}
+			}.otherwise{}
+		}.otherwise{}
+		
+		when(!brneedprocess(0) && slneedprocess === Bits(2)){
+			printf("---------------DFI process begin, @%x\n",io.dfi.bits.cycle_now)
+			printf("info: %x\n",infor)
+			brneedprocess(1) := Bool(false)
+			totalcount := totalcount + Bits(1)
+			/*
+			printf("sbuf_p %d +++\n", saddrbuf_p(log2Up(bufsize)-1,0))
+			for (i<- 0 to bufsize-1)
+			printf("sbuf %d value: %x, cycle %x\n", UInt(i), saddrbuf(UInt(i)), scyclebuf(UInt(i)))
+			
+			printf("lbuf_p %d +++\n", laddrbuf_p(log2Up(bufsize)-1,0))
+			for (i<- 0 to bufsize-1)
+			printf("lbuf %d value: %x, cycle %x\n", UInt(i), laddrbuf(UInt(i)), lcyclebuf(UInt(i)))
+			*/
+			slneedprocess := Bits(0)
+			count := Bits(0)
+			rw := infor(16)
+			id(2) := infor(15,0)
+			info_debug := infor
+			when(infor(21,20) === UInt(3)){
+				when(infor(18)){
+					printf("write report ---\n")
+					count := Bits(0)
+					state := Bits(REPORT)
+					brremain(1) := Bool(false)
+					callremain(2) := Bool(false)
+				}.otherwise{
+					printf("reset rdsmap cache ---\n")
+					brremain(1) := Bool(false)
+					callremain(2) := Bool(false)
+					state := Bits(CACHERESET)
+				}
+			}.elsewhen(infor(19,17) > UInt(0)){
+				
+			}.elsewhen(infor(16) === UInt(0)){//store
+				totalstcount := totalstcount + Bits(1)
+				val rdtentry = (((taraddr(0)>>addrshift)&Bits(addrmask))<<1)(61,3)
+				rdtcraddr := rdtentry&rdtcacheaddrmask
+				
+				memaddr := addrrdt+(((taraddr(0)>>addrshift)&Bits(addrmask))<<1)
+				memtype := Bits(1)
+				memtag := Bits(2)
+				memw := Bool(true)
+				memvalid := Bool(true)
+				memdatain := infor(15,0)
+				
+				brremain(1) := Bool(false)
+				callremain(2) := Bool(false)
+				taraddr(1) := taraddr(0)
+				state := Bits(WRITERDT)
+			}.otherwise{//load
+				totalldcount := totalldcount + Bits(1)
+				when((ldopt_red || (ldoptbuf.io.red && ldopt_id =/= Bits(0)))){
+					totalldopt := totalldopt + Bits(1)
+					printf("LD redundant\n")
+					brremain(1) := Bool(false)
+					callremain(2) := Bool(false)
+				}.otherwise{
+					totalldnoopt := totalldnoopt + Bits(1)
+					when(ldstate === Bits(READRDSMAP)){
+						val rdsmapentry = infor(15,0)
+						rdsmapcraddr := rdsmapentry&rdsmapcacheaddrmask
+						rdsmapcprobing := Bool(true)
+						
+						memaddr := addrrds+(infor(15,0)<<3)
+						memw := Bool(false)
+						memtype := Bits(3)
+						memtag := Bits(2)
+						memvalid := Bool(false)
+						//memvalid := Bool(true)
+						
+						brremain(1) := Bool(false)
+						callremain(2) := Bool(false)
+						taraddr(1) := taraddr(0)
+						state := Bits(READRDSMAP)
+					}.otherwise{
+						brremain(1) := Bool(false)
+						callremain(2) := Bool(false)
+						taraddr(1) := taraddr(0)
+						state := Bits(WRITELDTRACE)
+					}
+				}
+			}
+		}.otherwise{}
+	}
+	.elsewhen(state === Bits(CACHERESET)){
+		when(rdsmapcwaddr<Bits((1<<rdsmapcacheaddrwidth)-1)){
+			rdsmapcwaddr := rdsmapcwaddr + Bits(1)
+			rdsmapcdatain := Bits(0)
+		}.otherwise{}
+		when(rdtcwaddr<Bits((1<<rdtcacheaddrwidth)-1)){
+			rdtcwaddr := rdtcwaddr + Bits(1)
+			rdtcdatain := Bits(0)
+		}.otherwise{}
+		when(rdscwaddr<Bits((1<<rdscacheaddrwidth)-1)){
+			rdscwaddr := rdscwaddr + Bits(1)
+			rdscdatain := Bits(0)
+		}.otherwise{}
+		when(rdsmapcwaddr === Bits((1<<rdsmapcacheaddrwidth)-1) && rdtcwaddr === Bits((1<<rdtcacheaddrwidth)-1) && rdscwaddr === Bits((1<<rdscacheaddrwidth)-1)){
+			printf("cache reset done\n")
+			//state := Bits(IDLE)
+			memaddr := addrdebug
+			memw := Bool(false)
+			memtype := Bits(3)
+			memtag := Bits(2)
+			when(io.mem.req.fire()){
+				memvalid := Bool(false)
+				state := Bits(READSTOPCOND)
+			}.otherwise{
+				memvalid := Bool(true)
+			}
+		}.otherwise{}
+	}
+	.elsewhen(state === Bits(READSTOPCOND)){
+		when(io.mem.resp.valid && io.mem.resp.bits.tag(1,0) === Bits(2)){
+			stop_call_count_max := io.mem.resp.bits.data
+			printf("stop condition (call) is: %x\n",io.mem.resp.bits.data)
+			state := Bits(IDLE)
+		}
+	}
+	.elsewhen(state === Bits(WAIT)){
+		when(io.mem.resp.valid && io.mem.resp.bits.tag(1,0) === Bits(2)){
+			state := nstate
+		}
+	}
+	.elsewhen(state === Bits(WRITERDT)){
+		uprdt_cycle := uprdt_cycle + Bits(1)
+		when(!waitresp){
+			when(io.mem.req.fire()){
+				val cachehit = rdtcdataout =/= Bits(0) && (rdtcdataout>>64) === ((memaddr-addrrdt)>>3)>>rdtcacheaddrwidth
+				when(cachehit){
+					rdtcwaddr := rdtcraddr
+					rdtcdatain := (rdtcdataout&(~(Bits(0xffff)<<(memaddr(2,1)<<4))))|((memdatain&Bits(0xffff))<<(memaddr(2,1)<<4))
+				}
+				
+				waitresp := Bool(true)
+				printf("w addr: %x, data: %x, id: %x, RDT entry: %x\n",memaddr,memdatain,id(2),(memaddr-addrrdt)>>1)
+				memvalid := Bool(false)
+			}.otherwise{
+				memvalid := Bool(true)
+			}
+		}.otherwise{
+			when(io.mem.resp.valid && io.mem.resp.bits.tag(1,0) === Bits(2)){
+				opst_count := opst_count + Bits(1)
+				waitresp := Bool(false)
+				when(brremain(1) && funciscall(1)){
+					brremain(1) := Bool(false)
+					when(callremain(2)){
+						when(funccount === Bits(0) || funccount >= Bits(0xf0000000L)){
+							totalcallexceptioncount := totalcallexceptioncount + Bits(1)
+							printf("WARNING, lib func length incorrect\n")
+							state := Bits(IDLE)
+							memvalid := Bool(false)
+						}.elsewhen(funcmode(2) === Bits(2) || funcmode(2) === Bits(3)){
+							val rdsmapentry = id(2)
+							rdsmapcraddr := rdsmapentry&rdsmapcacheaddrmask
+							rdsmapcprobing := Bool(true)
+							
+							memaddr := addrrds+(id(2)<<3)
+							memw := Bool(false)
+							memtype := Bits(3)
+							memtag := Bits(2)
+							memvalid := Bool(false)
+							//memvalid := Bool(true)
+							
+							state := Bits(READRDSMAP)
+						}.elsewhen(funcmode(2) === Bits(1)){
+							val rdtentry = ((((funcarg0(1)>>addrshift)+funccount-Bits(1))&Bits(addrmask))<<1)(61,3)
+							rdtcraddr := rdtentry&rdtcacheaddrmask
+							
+							memaddr := addrrdt+((((funcarg0(1)>>addrshift)+funccount-Bits(1))&Bits(addrmask))<<1)
+							memw := Bool(true)
+							memtype := Bits(1)
+							memtag := Bits(2)
+							memvalid := Bool(true)
+							memdatain := id(2)
+							
+							state := Bits(WRITERDT)
+						}.otherwise{}
+					}.otherwise{
+						state := Bits(IDLE)
+						memvalid := Bool(false)
+					}
+				}.elsewhen(!callremain(2)){
+					state := Bits(IDLE)
+					memvalid := Bool(false)
+				}.elsewhen(callremain(2) && funccount <= Bits(1)){
+					state := Bits(IDLE)
+					memvalid := Bool(false)
+				}.otherwise{
+					val rdtentry = ((((funcarg0(1)>>addrshift)+funccount-Bits(2))&Bits(addrmask))<<1)(61,3)
+					rdtcraddr := rdtentry&rdtcacheaddrmask
+					
+					memaddr := addrrdt+((((funcarg0(1)>>addrshift)+funccount-Bits(2))&Bits(addrmask))<<1)
+					memw := Bool(true)
+					memtype := Bits(1)
+					memtag := Bits(2)
+					memvalid := Bool(true)
+					memdatain := id(2)
+					
+					state := Bits(WRITERDT)
+					memvalid := Bool(true)
+					funccount := funccount - Bits(1)
+				}
+			}.otherwise{
+				memvalid := Bool(false)
+			}
+		}
+	}
+	.elsewhen(state === Bits(READRDSMAP)){
+		rdrdsmap_cycle := rdrdsmap_cycle + Bits(1)
+		rdsid := Bits(0)
+		matched := Bool(false)
+		when(waitresp || rdsmapcprobing){
+			val cachehit = rdsmapcdataout =/= Bits(0) && (rdsmapcdataout>>64) === ((memaddr-addrrds)>>3)>>rdsmapcacheaddrwidth
+			val memresp = io.mem.resp.valid && io.mem.resp.bits.tag(1,0) === Bits(2)
+			when(cachehit || memresp){
+				when(waitresp){
+					val rdsmapentry = ((memaddr-addrrds)>>3)
+					rdsmapcwaddr := rdsmapentry&rdsmapcacheaddrmask
+					rdsmapcdatain := ((rdsmapentry>>rdsmapcacheaddrwidth)<<64)|io.mem.resp.bits.data(63,0)
+				}.otherwise{}
+				
+				waitresp := Bool(false)
+				rdsmapcprobing := Bool(false)
+				
+				when(waitresp){
+					totalrdsmapcachemiss := totalrdsmapcachemiss + Bits(1)
+					printf("rds range: %x, %x\n",io.mem.resp.bits.data(31,0),io.mem.resp.bits.data(63,32))
+					rdss := io.mem.resp.bits.data(31,0)
+					rdsp := io.mem.resp.bits.data(31,0)
+					rdse := io.mem.resp.bits.data(63,32)
+				}.otherwise{
+					totalrdsmapcachehit := totalrdsmapcachehit + Bits(1)
+					printf("RDSMAPCACHEHIT, rdsmapcache data: %x (%x, %x)\n",rdsmapcdataout,(rdsmapcdataout>>64),((memaddr-addrrds)>>3)>>rdsmapcacheaddrwidth)
+					printf("rds range: %x, %x\n",rdsmapcdataout(31,0),rdsmapcdataout(63,32))
+					rdss := rdsmapcdataout(31,0)
+					rdsp := rdsmapcdataout(31,0)
+					rdse := rdsmapcdataout(63,32)
+				}
+				
+				when(waitresp && (io.mem.resp.bits.data(31,0) === io.mem.resp.bits.data(63,32)) || rdsmapcprobing && (rdsmapcdataout(31,0) === rdsmapcdataout(63,32))){//not need to check if rds is empty
+					matched := Bool(true)
+					when(!callremain(2)){
+						state := Bits(IDLE)
+						memvalid := Bool(false)
+					}.elsewhen(callremain(2) && (funcmode(2) === Bits(1) || funcmode(2) === Bits(3))){
+						val rdtentry = ((((funcarg0(1)>>addrshift)+totalfunccount(1)-Bits(1))&Bits(addrmask))<<1)(61,3)
+						rdtcraddr := rdtentry&rdtcacheaddrmask
+						
+						memaddr := addrrdt+((((funcarg0(1)>>addrshift)+totalfunccount(1)-Bits(1))&Bits(addrmask))<<1)
+						memtype := Bits(1)
+						memtag := Bits(2)
+						memw := Bool(true)
+						memvalid := Bool(true)
+						memdatain := id(2)
+						
+						state := Bits(WRITERDT)
+						funccount := totalfunccount(1)
+					}.otherwise{
+						state := Bits(IDLE)
+						memvalid := Bool(false)
+					}
+				}.otherwise{
+					val rdtentry0 = (((funcretpointer(1)>>addrshift)&Bits(addrmask))<<1)(61,3)
+					val rdtentry1 = ((((funcarg1(1)>>addrshift)+funccount-Bits(1))&Bits(addrmask))<<1)(61,3)
+					val rdtentry2 = (((taraddr(1)>>addrshift)&Bits(addrmask))<<1)(61,3)
+					
+					when(brremain(1)){
+						rdtcraddr := rdtentry0&rdtcacheaddrmask
+					}.elsewhen(callremain(2)){
+						rdtcraddr := rdtentry1&rdtcacheaddrmask
+					}.otherwise{
+						rdtcraddr := rdtentry2&rdtcacheaddrmask
+					}
+					rdtcprobing := Bool(true)
+					
+					when(brremain(1)){
+						val realaddr = addrrdt+(((funcretpointer(1)>>addrshift)&Bits(addrmask))<<1)
+						memaddr := realaddr(61,3)<<3
+						memaddrmod := realaddr(2,0)
+					}.elsewhen(callremain(2)){
+						val realaddr = addrrdt+((((funcarg1(1)>>addrshift)+funccount-Bits(1))&Bits(addrmask))<<1)
+						memaddr := realaddr(61,3)<<3
+						memaddrmod := realaddr(2,0)
+					}.otherwise{
+						val realaddr = addrrdt+(((taraddr(1)>>addrshift)&Bits(addrmask))<<1)
+						memaddr := realaddr(61,3)<<3
+						memaddrmod := realaddr(2,0)
+					}
+					memtype := Bits(3)
+					memtag := Bits(2)
+					memw := Bool(false)
+					memvalid := Bool(false)
+					
+					state := Bits(READRDT)
+				}
+			}.elsewhen(rdsmapcprobing && !cachehit){
+				printf("rdsmap not hit, access rdt in memory\n")
+				memvalid := Bool(true)
+				rdsmapcprobing := Bool(false)
+			}
+			.otherwise{
+				memvalid := Bool(false)
+			}
+		}.otherwise{
+			when(io.mem.req.fire()){
+				waitresp := Bool(true)
+				memvalid := Bool(false)
+			}.otherwise{
+				memvalid := Bool(true)
+			}
+		}
+	}
+	.elsewhen(state === Bits(READRDT)){
+		rdsp := rdss
+		rdrdt_cycle := rdrdt_cycle + Bits(1)
+		when(waitresp || rdtcprobing){
+			val cachehit = rdtcdataout =/= Bits(0) && (rdtcdataout>>64) === ((memaddr-addrrdt)>>3)>>rdtcacheaddrwidth
+			val memresp = io.mem.resp.valid && io.mem.resp.bits.tag(1,0) === Bits(2)
+			when(cachehit || memresp){
+				opld_count := opld_count + Bits(1)
+				when(memresp){
+					val rdtentry = ((memaddr-addrrdt)>>3)
+					rdtcwaddr := rdtentry&rdtcacheaddrmask
+					rdtcdatain := ((rdtentry>>rdtcacheaddrwidth)<<64)|io.mem.resp.bits.data
+				}.otherwise{}
+				
+				waitresp := Bool(false)
+				rdtcprobing := Bool(false)
+				
+				val previdfmem = (io.mem.resp.bits.data>>(memaddrmod(2,1)<<4))&Bits(0xffff)
+				val previdfcache = (rdtcdataout>>(memaddrmod(2,1)<<4))&Bits(0xffff)
+				
+				when(waitresp){
+					totalrdtcachemiss := totalrdtcachemiss + Bits(1)
+					printf("latest write id: %d\n",previdfmem(15,0))
+					prevwid := previdfmem(15,0)
+				}.otherwise{
+					totalrdtcachehit := totalrdtcachehit + Bits(1)
+					printf("RDTCACHEHIT, rdtcache data: %x, tag: %x, latest write id: %d\n",rdtcdataout(63,0),(rdtcdataout>>64),previdfcache(15,0))
+					prevwid := previdfcache
+				}
+				
+				when(memresp && previdfmem === Bits(0) || cachehit && previdfcache === Bits(0)){//not need to check if rdt=0
+					matched := Bool(true)
+					when(!callremain(2)){//no other check
+						state := Bits(IDLE)
+						memvalid := Bool(false)
+					}.elsewhen((callremain(2) && funccount <= Bits(1) && (funcmode(2) === Bits(1) || funcmode(2) === Bits(3)) )){//lib read finished, go to lib write
+						val rdtentry = ((((funcarg0(1)>>addrshift)+totalfunccount(1)-Bits(1))&Bits(addrmask))<<1)(61,3)
+						rdtcraddr := rdtentry&rdtcacheaddrmask
+						
+						memaddr := addrrdt+((((funcarg0(1)>>addrshift)+totalfunccount(1)-Bits(1))&Bits(addrmask))<<1)
+						memtype := Bits(1)
+						memtag := Bits(2)
+						memw := Bool(true)
+						memvalid := Bool(true)
+						memdatain := id(2)
+						
+						state := Bits(WRITERDT)
+						funccount := totalfunccount(1)
+					}.elsewhen(callremain(2)){//lib read unfinished, continue
+						val rdtentry = ((((funcarg1(1)>>addrshift)+funccount-Bits(1))&Bits(addrmask))<<1)(61,3)
+						rdtcraddr := rdtentry&rdtcacheaddrmask
+						rdtcprobing := Bool(true)
+						
+						val realaddr = addrrdt+((((funcarg1(1)>>addrshift)+funccount-Bits(1))&Bits(addrmask))<<1)
+						memaddr := realaddr(61,3)<<3
+						memaddrmod := realaddr(2,0)
+						memtype := Bits(3)
+						memtag := Bits(2)
+						memw := Bool(false)
+						memvalid := Bool(false)
+						
+						state := Bits(READRDT)
+						funccount := funccount - Bits(1)
+					}.otherwise{//OTW, finish DFI process
+						state := Bits(IDLE)
+						memvalid := Bool(false)
+					}
+				}.elsewhen(brremain(1)){//if stack pointer needs to be check
+					matched := (memresp && previdfmem === Bits(0xffff)) || (cachehit && previdfcache === Bits(0xffff))
+					brremain(1) := Bool(false)
+					state := Bits(IDLE)//this is a function return, callremain must = 0
+					memvalid := Bool(false)
+				}.otherwise{
+					val rdsentry = (rdss<<1)(61,3)
+					rdscraddr := rdsentry&rdscacheaddrmask
+					rdscprobing := Bool(true)
+					
+					memaddr := ((addrrds+(rdss<<1))(61,3))<<3
+					memaddrmod := (addrrds+(rdss<<1))(2,0)
+					memw := Bool(false)
+					memtag := Bits(2)
+					memtype := Bits(3)
+					memvalid := Bool(false)
+					
+					state := Bits(READRDS)
+				}
+			}.elsewhen(rdtcprobing && !cachehit){
+				printf("not hit, access rdt in memory\n")
+				memvalid := Bool(true)
+				rdtcprobing := Bool(false)
+			}.otherwise{
+				memvalid := Bool(false)
+			}
+		}.otherwise{
+			when(io.mem.req.fire()){
+				waitresp := Bool(true)
+				printf("r addr: %x, id: %x, RDT entry: %x\n",memaddr,id(2),(memaddr-addrrdt)>>1)
+				memvalid := Bool(false)
+			}.otherwise{
+				memvalid := Bool(true)
+			}
+		}
+	}
+	.elsewhen(state === Bits(READRDS)){
+		rdrds_cycle := rdrds_cycle + Bits(1)
+		when(waitresp || rdscprobing){
+			val cachehit = rdscdataout =/= Bits(0) && (rdscdataout>>64) === ((memaddr-addrrds)>>3)>>rdscacheaddrwidth
+			val memresp = io.mem.resp.valid && io.mem.resp.bits.tag(1,0) === Bits(2)
+			when(cachehit || memresp){
+				when(memresp){
+					val rdsentry = ((memaddr-addrrds)>>3)
+					rdscwaddr := rdsentry&rdscacheaddrmask
+					rdscdatain := ((rdsentry>>rdscacheaddrwidth)<<64)|io.mem.resp.bits.data
+				}.otherwise{}
+				
+				waitresp := Bool(false)
+				rdscprobing := Bool(false)
+				
+				when(waitresp){
+					printf("rds id: %d, %d, %d, %d\n",io.mem.resp.bits.data(15,0),io.mem.resp.bits.data(31,16),io.mem.resp.bits.data(47,32),io.mem.resp.bits.data(63,48))
+					totalrdscachemiss := totalrdscachemiss + Bits(1)
+				}.otherwise{
+					printf("RDSCACHEHIT, rds id: %d, %d, %d, %d\n",rdscdataout(15,0),rdscdataout(31,16),rdscdataout(47,32),rdscdataout(63,48))
+					totalrdscachehit := totalrdscachehit + Bits(1)
+				}
+				printf("mem side pass? %x, cache side pass? %x\n",onematched,conematched)
+				rdsp:=rdsp+Bits(4)
+				when((onematched && memresp) || (conematched && cachehit)){//check pass
+					matched := Bool(true)
+					when(!callremain(2)){//this is not a lib call check, then finish DFI
+						state := Bits(IDLE)
+						memvalid := Bool(false)
+					}.elsewhen((callremain(2) && funccount <= Bits(1) && (funcmode(2) === Bits(1) || funcmode(2) === Bits(3)) )){//this is a call, finished, check if needs write
+						val rdtentry = ((((funcarg0(1)>>addrshift)+totalfunccount(1)-Bits(1))&Bits(addrmask))<<1)(61,3)
+						rdtcraddr := rdtentry&rdtcacheaddrmask
+						
+						memaddr := addrrdt+((((funcarg0(1)>>addrshift)+totalfunccount(1)-Bits(1))&Bits(addrmask))<<1)
+						memtype := Bits(1)
+						memtag := Bits(2)
+						memw := Bool(true)
+						memvalid := Bool(true)
+						memdatain := id(2)
+						
+						state := Bits(WRITERDT)
+						funccount := totalfunccount(1)
+					}.elsewhen(callremain(2) && funccount <= Bits(1) && funcmode(2) === Bits(2)){
+						state := Bits(IDLE)
+						memvalid := Bool(false)
+					}.elsewhen(callremain(2)){
+						val rdtentry = ((((funcarg1(1)>>addrshift)+funccount-Bits(1))&Bits(addrmask))<<1)(61,3)
+						rdtcraddr := rdtentry&rdtcacheaddrmask
+						rdtcprobing := Bool(true)
+						
+						val realaddr = addrrdt+((((funcarg1(1)>>addrshift)+funccount-Bits(1))&Bits(addrmask))<<1)
+						memaddr := realaddr(61,3)<<3
+						memaddrmod := realaddr(2,0)
+						memtype := Bits(3)
+						memtag := Bits(2)
+						memw := Bool(false)
+						memvalid := Bool(false)
+						
+						state := Bits(READRDT)
+						funccount := funccount - Bits(1)
+					}.otherwise{
+						state := Bits(IDLE)
+						memvalid := Bool(false)
+					}
+				}.elsewhen(rdsp+Bits(4)>=rdse){//check not pass
+					matched := Bool(false)
+					when(!callremain(2)){
+						state := Bits(IDLE)
+						memvalid := Bool(false)
+					}.elsewhen(callremain(2) && (funcmode(2) === Bits(1) || funcmode(2) === Bits(3))){//one of the data readed by lib is violated, no need to check the following data
+						val rdtentry = ((((funcarg0(1)>>addrshift)+totalfunccount(1)-Bits(1))&Bits(addrmask))<<1)(61,3)
+						rdtcraddr := rdtentry&rdtcacheaddrmask
+						
+						memaddr := addrrdt+((((funcarg0(1)>>addrshift)+totalfunccount(1)-Bits(1))&Bits(addrmask))<<1)
+						memtype := Bits(1)
+						memtag := Bits(2)
+						memw := Bool(true)
+						memvalid := Bool(true)
+						memdatain := id(2)
+						
+						state := Bits(WRITERDT)
+						funccount := totalfunccount(1)
+					}.otherwise{
+						state := Bits(IDLE)
+						memvalid := Bool(false)
+					}
+				}.otherwise{
+					val rdsentry = (rdsp+Bits(4)<<1)(61,3)
+					rdscraddr := rdsentry&rdscacheaddrmask
+					rdscprobing := Bool(true)
+					
+					memaddr := ((addrrds+(rdsp+Bits(4)<<1))(61,3))<<3
+					memaddrmod := (addrrds+(rdsp+Bits(4)<<1))(2,0)
+					memw := Bool(false)
+					memtag := Bits(2)
+					memtype := Bits(3)
+					memvalid := Bool(false)
+					
+					state := Bits(READRDS)
+				}
+			}.elsewhen(rdscprobing && !cachehit){
+				printf("not hit, access rds in memory\n")
+				memvalid := Bool(true)
+				rdscprobing := Bool(false)
+			}.otherwise{
+				memvalid := Bool(false)
+			}
+		}.otherwise{
+			when(io.mem.req.fire()){
+				printf("r rds: %x\n",((addrrds+(rdsp<<1))(61,3))<<3);
+				memvalid := Bool(false)
+				waitresp := Bool(true)
+			}.otherwise{
+				memvalid := Bool(true)
+			}
+		}
+	}
+	.elsewhen(state === Bits(WRITELDTRACE)){
+		memtag := Bits(2)
+		memaddr := addrdebug+Bits(800)+(rdtreaddebug_p<<3)
+		memw := Bool(true)
+		memdatain := taraddr(1)
+		memtype := Bits(3)
+		
+		when(io.mem.req.fire()){
+			printf("rdttrace write to addr: %x, trace %x\n",addrdebug+Bits(800)+(rdtreaddebug_p<<3),taraddr(1));
+			when(rdtreaddebug_p>=Bits(0x7ff00)){
+				rdtreaddebug_p := Bits(0)
+			}.otherwise{
+				rdtreaddebug_p := rdtreaddebug_p + Bits(1)
+			}
+
+			state := Bits(WAIT)
+			
+			val rdsmapentry = id(2)
+			rdsmapcraddr := rdsmapentry&rdsmapcacheaddrmask
+			rdsmapcprobing := Bool(true)
+			
+			memaddr := addrrds+(id(2)<<3)
+			memw := Bool(false)
+			memtype := Bits(3)
+			memtag := Bits(2)
+			memvalid := Bool(false)
+			
+			nstate := Bits(READRDSMAP)
+			pstate := Bits(WRITELDTRACE)
+		}.otherwise{
+			memvalid := Bool(true)
+		}
+	}
+	.elsewhen(state === Bits(REPORT)){
+		memtag := Bits(2)
+		memaddr := addrdebug+(count<<3)
+		memw := Bool(true)
+		when(count === Bits(0)){
+			memdatain := violations
+		}.elsewhen(count === Bits(1)){
+			memdatain := errorcount
+		}.elsewhen(count === Bits(2)){
+			memdatain := totalcount
+		}.elsewhen(count === Bits(3)){
+			memdatain := funcarg0(1)
+		}.elsewhen(count === Bits(4)){
+			memdatain := funcarg1(1)
+		}.elsewhen(count === Bits(5)){
+			memdatain := funcarg2(1)
+		}.elsewhen(count === Bits(6)){
+			memdatain := funcretpointer(1)
+		}.elsewhen(count === Bits(7)){
+			memdatain := totalfunccount(1)
+		}.elsewhen(count === Bits(8)){
+			memdatain := opst_count
+		}.elsewhen(count === Bits(9)){
+			memdatain := opld_count
+		}.elsewhen(count === Bits(10)){
+			memdatain := uprdt_cycle
+		}.elsewhen(count === Bits(11)){
+			memdatain := rdrdt_cycle
+		}.elsewhen(count === Bits(12)){
+			memdatain := rdrdsmap_cycle
+		}.elsewhen(count === Bits(13)){
+			memdatain := rdrds_cycle
+		}.elsewhen(count === Bits(14)){
+			memdatain := chk_cycle
+		}.elsewhen(count === Bits(15)){
+			memdatain := maxlibarg0
+		}.elsewhen(count === Bits(16)){
+			memdatain := maxlibarg1
+		}.elsewhen(count === Bits(17)){
+			memdatain := maxlibarg2
+		}.elsewhen(count === Bits(18)){
+			memdatain := maxlibarg3
+		}.elsewhen(count === Bits(19)){
+			memdatain := maxlibretaddr
+		}.elsewhen(count === Bits(20)){
+			memdatain := maxlibretptr
+		}.elsewhen(count === Bits(21)){
+			memdatain := maxliblen
+		}.elsewhen(count === Bits(22)){
+			memdatain := totalldopt
+		}.elsewhen(count === Bits(23)){
+			memdatain := totalldnoopt
+		}.elsewhen(count === Bits(24)){
+			memdatain := totalrdtcachehit
+		}.elsewhen(count === Bits(25)){
+			memdatain := totalrdsmapcachehit
+		}.elsewhen(count === Bits(26)){
+			memdatain := rdtcdataout
+		}.elsewhen(count === Bits(27)){
+			memdatain := rdsmapcdataout
+		}.elsewhen(count === Bits(28)){
+			memdatain := totalrdscachehit
+		}.elsewhen(count === Bits(29)){
+			memdatain := totalrdtcachemiss
+		}.elsewhen(count === Bits(30)){
+			memdatain := totalrdsmapcachemiss
+		}.elsewhen(count === Bits(31)){
+			memdatain := totalrdscachemiss
+		/*
+		}.elsewhen(count === Bits(32)){
+			memdatain := lat_call_count
+		}.elsewhen(count === Bits(33)){
+			memdatain := lat_call_cycles
+		}.elsewhen(count === Bits(34)){
+			memdatain := lat_libst_count
+		}.elsewhen(count === Bits(35)){
+			memdatain := lat_libst_cycles
+		}.elsewhen(count === Bits(36)){
+			memdatain := lat_libld_count
+		}.elsewhen(count === Bits(37)){
+			memdatain := lat_libld_cycles
+		}.elsewhen(count === Bits(38)){
+			memdatain := lat_libstld_count
+		}.elsewhen(count === Bits(39)){
+			memdatain := lat_libstld_cycles
+		}.elsewhen(count === Bits(40)){
+			memdatain := lat_ret_count
+		}.elsewhen(count === Bits(41)){
+			memdatain := lat_ret_cycles
+		}.elsewhen(count === Bits(42)){
+			memdatain := lat_st_count
+		}.elsewhen(count === Bits(43)){
+			memdatain := lat_st_cycles
+		}.elsewhen(count === Bits(44)){
+			memdatain := lat_ld_count
+		}.elsewhen(count === Bits(45)){
+			memdatain := lat_ld_cycles
+		*/
+		
+		}.elsewhen(count === Bits(32)){
+			memdatain := idle_cycle
+		}.elsewhen(count === Bits(33)){
+			memdatain := total_cycle
+		}.elsewhen(count === Bits(34)){
+			memdatain := fifocuspush_cycle
+		}.elsewhen(count === Bits(35)){
+			memdatain := fifofuncpush_cycle
+		}.elsewhen(count === Bits(36)){
+			memdatain := fifocusbranchpush
+		}.elsewhen(count === Bits(37)){
+			memdatain := fifocusbranchpop
+		}.elsewhen(count === Bits(38)){
+			memdatain := fifofuncbranchpush
+		}.elsewhen(count === Bits(39)){
+			memdatain := fifofuncbranchpop
+		}.elsewhen(count === Bits(40)){
+			memdatain := fifofuncloss
+		}.elsewhen(count === Bits(41)){
+			memdatain := fifofunclatestlossinfo
+		}.elsewhen(count === Bits(42)){
+			memdatain := fifofunclatestlosscuscount
+		}.elsewhen(count === Bits(43)){
+			memdatain := fifofunclatestlossfunccount
+		}.elsewhen(count === Bits(44)){
+			memdatain := fifofunclatestlossrecord
+		}.elsewhen(count === Bits(45)){
+			memdatain := fifofunclatestlosstaraddr
+		
+		}.elsewhen(count === Bits(46)){
+			memdatain := fifocusmax
+		}.elsewhen(count === Bits(47)){
+			memdatain := fifofuncmax
+		}.elsewhen(count === Bits(48)){
+			memdatain := shdstackmax
+		}.elsewhen(count === Bits(49)){
+			memdatain := stop_call_count
+		}.elsewhen(count === Bits(50)){
+			memdatain := stop_call_count_all
+		}.elsewhen(count === Bits(51)){
+			memdatain := stop_call_count_max
+		}.elsewhen(count === Bits(52)){
+			memdatain := stop_coreexception
+		}.elsewhen(count === Bits(53)){
+			memdatain := totalstcount
+		}.elsewhen(count === Bits(54)){
+			memdatain := totalldcount
+		}.elsewhen(count === Bits(55)){
+			memdatain := totalcallcount
+		}.elsewhen(count === Bits(56)){
+			memdatain := totalcallexceptioncount
+		}.elsewhen(count === Bits(57)){
+			memdatain := Bits(0)
+		}.elsewhen(count === Bits(58)){
+			memdatain := Bits(0)
+		}.elsewhen(count === Bits(59)){
+			memdatain := Bits(0x11122233)
+		}
+		.otherwise{}
+		
+		memtype := Bits(3)
+		when(io.mem.req.fire()){
+			//printf("report write to addr: %x\n",addrdebug+((count+Bits(6))<<2));
+			memvalid := Bool(false)
+			state := Bits(WAIT)
+			when(count < Bits(59)){
+				nstate := Bits(REPORT)
+			}.otherwise{
+				nstate := Bits(IDLE)
+			}
+			pstate := Bits(REPORT)
+			count := count + Bits(1)
+		}.otherwise{
+			memvalid := Bool(true)
+		}
+	}
+	.otherwise{}
+	
+}
+//flang----------------
+
+
+//wxr++++++++++++
+
+
+
+/*
+Here are some reasons:
+	1.Locality 2.History
+	We use the shiftreg to hold the history message
+*/
+class Redundant_Buffer(Depth:Int)(implicit p: Parameters) extends Module {
+	val io = IO(new Bundle{
+		//fifo signals
+		val fifo_read = Bool(OUTPUT)
+		val fifo_empty = Bool(INPUT)
+		val fifo_data = Input(UInt(64.W))
+		//redundant signals out
+		val info_req = Bool(INPUT)
+		val info_resp = Bool(OUTPUT)
+		val info_data = Output(UInt(64.W))
+		//configure siganls
+		val conf_valid = Bool(INPUT)
+		val group_num = Input(UInt(3.W)) //how many 64, load from the fifo
+		val group_realtion = Input(UInt(1.W)) // 0 || ; 1 &&
+		val conditions = Input(UInt(2.W)) //8 shiftregs, need 2 conditions bit < > =
+	})
+
+
+}
+
+
+//This module is memory in the micro-core
+
+
+class mem_rw(implicit p:Parameters) extends CoreBundle{
+	val addr = Input(UInt(width  = 32))
+	val write = Bool(INPUT)
+	val data_w = Input(UInt(64.W))
+	val busy = Bool(OUTPUT)
+	val burst = Input(UInt(4.W)) //0000:no burst
+	val out = Output(UInt(64.W))
+}
+
+
+class mem_initial(implicit p:Parameters) extends CoreBundle{
+	val valid = Input(Bool())
+	val addr = Input(UInt(width  = 64))
+	val len = Input(UInt(64.W))
+	val load_done = Output(Bool())
+}
+
+
+
+//This class bundle the message come from hardware
+class info(implicit p:Parameters) extends CoreBundle{
+	val cfi = Decoupled(new CFIPort).flip
+	val dfi = Decoupled(new DFIPort).flip
+	val cmd = Decoupled(new RoCCCommand).flip
+}
+
+
+
+//shadow stack
+/*
+This stack has 16 entries, each entry has 64bits. At the same time
+, when the stack is full, the lastest push entry will be replaced 
+by the newest entry
+*/
+class stack(implicit p: Parameters) extends Module {
+	val io = IO(new Bundle{
+		val push = Bool(INPUT)
+		val pop = Bool(INPUT)
+		val data_in = Input(UInt(64.W))
+		val data_out = Output(UInt(64.W))
+		val empty = Bool(OUTPUT)
+		val rst = Bool(INPUT)
+	})
+
+	val mem = Mem(32,Bits(width=64))
+	val top = Reg(init = Bits(0,width=6))
+	io.empty := (top === 1.U && io.pop) || top===0.U
+	val full = top===32.U || (io.push && top===32.U)
+	val data_out_reg = Reg(init = Bits(0,width=64))
+	io.data_out := data_out_reg
+	when(io.rst){
+		top:=0.U
+	}.elsewhen(io.push){
+		when(top===32.U){
+			top :=0.U
+		}.otherwise{
+			top := top + 1.U
+			mem(top) := io.data_in
+		}
+	}.elsewhen(io.pop){
+		when(top===0.U){
+			data_out_reg := 0.U
+		}.otherwise{
+			data_out_reg := mem(top-1.U)
+			top := top -1.U
+		}
+	}
+
+}
+
+
+class search_cmp(implicit p: Parameters) extends Module {
+	val io = IO(new Bundle{
+		val checked = Input(UInt(64.W))
+		val datain = Input(UInt(64.W))
+		val res_len = Input(UInt(2.W))
+		val res_num = Input(UInt(6.W))
+		val res_addr = Input(UInt(3.W))
+		val hit = Bool(OUTPUT)
+	})
+	val mask = (1.U<<(8.U<<io.res_len)) -1.U
+	val shift = 8.U << io.res_len
+	val data_h = io.datain >> (8.U*io.res_addr)
+	val num_mask = (1.U<<io.res_num) - 1.U
+
+	val shift1 = shift << 1.U
+	val shift2 = shift *3.U
+	val d1 = data_h & mask
+	val d2 = data_h>>shift & mask
+	val d3 = data_h>>shift1 & mask
+	val d4 = data_h>>shift2 & mask
+
+	io.hit := (Cat(d4===io.checked , d3===io.checked , d2===io.checked , d1 ===io.checked	) & num_mask) =/= 0.U
+
+
+}
+
+
+class search_hit_buf(implicit p: Parameters) extends Module {
+	val io = IO(new Bundle{
+		val key = Input(UInt(64.W))
+		val value = Input(UInt(64.W))
+		val valid = Input(Bool())
+		val rst = Input(Bool())
+		val hit = Bool(OUTPUT)
+	})
+
+	val key_reg = Reg(init = Vec.fill(32){Bits(0,width = 64)})
+	val value_reg = Reg(init = Vec.fill(32){Bits(0,width = 64)})
+	val cnt = Reg(init = Bits(0,width = 6))
+	val hit = Reg(init = Bool(false))
+	io.hit := hit
+	//io.hit := Bool(false)
+	val cmp = (io.key === key_reg(0) && io.value === value_reg(0)) |
+			(io.key === key_reg(1) && io.value === value_reg(1)) |
+			(io.key === key_reg(2) && io.value === value_reg(2)) |
+			(io.key === key_reg(3) && io.value === value_reg(3)) |
+			(io.key === key_reg(4) && io.value === value_reg(4)) |
+			(io.key === key_reg(5) && io.value === value_reg(5)) |
+			(io.key === key_reg(6) && io.value === value_reg(6)) |
+			(io.key === key_reg(7) && io.value === value_reg(7)) |
+			(io.key === key_reg(8) && io.value === value_reg(8)) |
+			(io.key === key_reg(9) && io.value === value_reg(9)) |
+			(io.key === key_reg(10) && io.value === value_reg(10)) |
+			(io.key === key_reg(11) && io.value === value_reg(11)) |
+			(io.key === key_reg(12) && io.value === value_reg(12)) |
+			(io.key === key_reg(13) && io.value === value_reg(13)) |
+			(io.key === key_reg(14) && io.value === value_reg(14)) |
+			(io.key === key_reg(15) && io.value === value_reg(15)) |
+			(io.key === key_reg(16) && io.value === value_reg(16)) |
+			(io.key === key_reg(17) && io.value === value_reg(17)) |
+			(io.key === key_reg(18) && io.value === value_reg(18)) |
+			(io.key === key_reg(19) && io.value === value_reg(19)) |
+			(io.key === key_reg(20) && io.value === value_reg(20)) |
+			(io.key === key_reg(21) && io.value === value_reg(21)) |
+			(io.key === key_reg(22) && io.value === value_reg(22)) |
+			(io.key === key_reg(23) && io.value === value_reg(23)) |
+			(io.key === key_reg(24) && io.value === value_reg(24)) |
+			(io.key === key_reg(25) && io.value === value_reg(25)) |
+			(io.key === key_reg(26) && io.value === value_reg(26)) |
+			(io.key === key_reg(27) && io.value === value_reg(27)) |
+			(io.key === key_reg(28) && io.value === value_reg(28)) |
+			(io.key === key_reg(29) && io.value === value_reg(29)) |
+			(io.key === key_reg(30) && io.value === value_reg(30)) |
+			(io.key === key_reg(31) && io.value === value_reg(31)) 
+
+	when(io.rst){
+		cnt := 0.U
+		for(i<- 0 to 31){
+			key_reg(i) := 0.U
+			value_reg(i) := 0.U
+		}
+
+	}.elsewhen(io.valid){
+		when(cmp){
+			hit := Bool(true)
+		}.otherwise{
+			key_reg(cnt) := io.key
+			value_reg(cnt) := io.value
+			cnt := cnt + 1.U
+		}
+
+	}.otherwise{
+		hit := Bool(false)
+	}
+
+
+
+}
+//This trait describe some const
+trait co_core_const{
+	def CO_JUMP       = UInt("b000001")
+	def CO_FIFO_INPUT = UInt("b000010")
+	def CO_LOAD       = UInt("b000011")
+	def CO_STORE      = UInt("b000100")
+	def CO_CMP        = UInt("b000101")
+	def CO_ADD        = UInt("b000110")
+	def CO_MUL        = UInt("b000111")
+	def CO_MINUS      = UInt("b001000")
+	def CO_WReg       = UInt("b001001")
+	def CO_DO_UNTIL   = UInt("b001010")
+	def CO_R_BUF      = UInt("b001011")  //read the message from buffer
+	def CO_R_FIFO     = UInt("b001100")
+	def CO_SL         = UInt("b001101")
+	def CO_RL         = UInt("b001110")
+	def CO_BIT_AND    = UInt("b001111")
+	def CO_IF         = UInt("b010000")
+	def CO_POP        = UInt("b010001")
+	def CO_PUSH       = UInt("b010010")
+	def CO_S_LOAD     = UInt("b010011")
+	def CO_C_CMP      = UInt("b010100")
+	def CO_STALL      = UInt("b010101")
+	def CO_SEARCH     = UInt("b010110")
+	def CO_SEARCH_S   = UInt("b010111")
+	def CO_SEARCH_RST = UInt("b011000")
+	def CO_M_DISTRI   = UInt("b011001")
+	def CO_LRS  	  = UInt("b011010")
+}
+
+
+//Distrubuted cache
+class rocc_cache(cacheAddrW: Int)(implicit p: Parameters) extends Module {
+	val io = IO(new Bundle{
+		val addr = Input(UInt(64.W))
+		val datacin = Input(UInt(64.W))
+		val cin_valid = Input(Bool())
+		val datacout = Output((UInt(64.W)))
+		val hit = Output(Bool())
+		val rst = Input(Bool())
+		val rst_done = Output(Bool())
+		//DEBUG
+		val data_debugcout = Output(UInt(64.W))
+	})
+	//cacheAddrW is the entries....  lowest 3bit are all 0
+	val mem_cache = Mem(1<<cacheAddrW,Bits(width=(64 + 39 - cacheAddrW -3)))
+
+	val c_rst_keep = Reg(init = Bool(false))
+	val c_rst_cnt = Reg(init = Bits(0,width=32))
+	val c_rst_done = Reg(init = Bool(false))
+
+	val c_addr= Mux(c_rst_keep,c_rst_cnt,io.addr(cacheAddrW+3,3))
+
+	mem_cache(c_addr) := Mux(c_rst_keep,0.U,Mux(io.cin_valid,Cat((io.addr>>(cacheAddrW+3)),io.datacin),mem_cache(c_addr) ))
+	io.hit := mem_cache(io.addr(cacheAddrW+3,3)) =/= 0.U && (mem_cache(io.addr(cacheAddrW+3,3))>>64) === (io.addr>>(cacheAddrW+3))
+	//io.hit := Bool(false)
+	io.datacout := mem_cache(io.addr(cacheAddrW+3,3))
+	io.rst_done := c_rst_done
+	io.data_debugcout := mem_cache(io.addr(cacheAddrW+3,3)) >>64
+	when(io.rst && ! c_rst_keep){
+		c_rst_keep := Bool(true)
+	}.elsewhen(c_rst_keep){
+		when(c_rst_cnt === (1.U<<cacheAddrW )){
+			c_rst_cnt := 0.U
+			c_rst_keep := Bool(false)
+			c_rst_done := Bool(true)
+		}.otherwise{
+			c_rst_cnt := c_rst_cnt + 1.U
+		}
+	}.otherwise{
+		c_rst_done := Bool(false)
+	}
+}
+
+
+
+class rocc_measurement(implicit p: Parameters) extends Module {
+	val io = IO(new Bundle{
+		val rst = Input(Bool())
+		val r_fifo = Input(Bool())
+		val stalled_fifo_empty = Input(Bool())
+		val stalled_fifo_wide = Input(Bool())
+		val if_en = Input(Bool())
+		val co_if = Input(Bool())
+		val fifo_wide_full = Input(Bool())
+		val fifo_full = Input(Bool())
+		val dfi_v = Input(Bool())
+		val dfi_lib_v = Input(Bool())
+		val dfi_rw = Input(UInt(1.W))
+		val fifo_r = Input(Bool())
+		val fifo_data = Input(UInt(64.W))
+		val fifo_wide_r = Input(Bool())
+		val fifo_wide_data = Input(UInt(512.W))
+		val stalled_vec0 = Input(Bool())
+		val stalled_vec1 = Input(Bool())
+		val memresp = Input(Bool())
+		val SEARCH_STATE = Input(UInt(8.W))
+		val stalled_r = Input(Bool())
+		val r_fifo_rd = Input(UInt(6.W))
+		val r_fifo_rd_wire = Input(UInt(6.W))
+		val store_en = Input(Bool())
+		val load_en = Input(Bool())
+		val search = Input(Bool())
+		val fifo_write = Input(Bool())
+		val fifo_data_in = Input(UInt(64.W))
+		val cycle_now = Input(UInt(64.W))
+		val inst = Input(UInt(64.W))
+		val cmp = Input(Bool())
+		val core_ls = Input(Bool())
+		val common_rfifo_exe_time = Output(UInt(64.W))
+		val common_without_rfifo_exe_time = Output(UInt(64.W))
+		val common_if_exe_time = Output(UInt(64.W))
+		val common_fifofull_time = Output(UInt(64.W))
+		val common_other_execution = Output(UInt(64.W))
+		val common_store_overlap = Output(UInt(64.W))
+		val dfi_test_store_req = Output(UInt(64.W))
+		val dfi_test_load_req = Output(UInt(64.W))
+		val dfi_test_lib_req = Output(UInt(64.W))
+		val dfi_test_store_time = Output(UInt(64.W))
+		val dfi_test_load_time = Output(UInt(64.W))
+		val dfi_test_lib_time = Output(UInt(64.W))
+		val dfi_test_search_overlap = Output(UInt(64.W))
+		val cfi_test_jalr = Output(UInt(64.W))
+		val cfi_test_call = Output(UInt(64.W))
+		val cfi_test_ret = Output(UInt(64.W))
+		val cfi_test_jalr_time = Output(UInt(64.W))
+		val cfi_test_call_time = Output(UInt(64.W))
+		val cfi_test_ret_time = Output(UInt(64.W))
+		val st_test_pop = Output(UInt(64.W))
+		val st_test_push = Output(UInt(64.W))
+		val st_test_push_time = Output(UInt(64.W))
+		val st_test_pop_time = Output(UInt(64.W))
+		val wh_test_load = Output(UInt(64.W))
+		val wh_test_lib = Output(UInt(64.W))
+		val wh_test_lib_time = Output(UInt(64.W))
+		val wh_test_load_time = Output(UInt(64.W))
+		val dfi_test_delay = Output(UInt(64.W))
+		val hdfi_test_delay = Output(UInt(64.W))
+		val hdfi_test_load_time = Output(UInt(64.W))
+		val cfi_test_delay = Output(UInt(64.W))
+		val cfi_test_ret_delay = Output(UInt(64.W))
+		val st_test_delay = Output(UInt(64.W))
+		val wh_test_delay = Output(UInt(64.W))
+		val core_ls_count = Output(UInt(64.W))
+	})
+//shadow fifo keeo cycle 
+
+	val fifo =Module(new DFIFIFO(64,64))
+	fifo.io.rst := io.rst
+	fifo.io.write := io.fifo_write
+	fifo.io.read := io.fifo_r || io.fifo_wide_r
+	fifo.io.datain := io.fifo_data_in
+
+
+//common
+	val common_rfifo_exe_time = Reg(init = Bits(0,width=64))
+	val common_without_rfifo_exe_time = Reg(init = Bits(0,width=64))
+	val common_if_exe_time = Reg(init = Bits(0,width=64))
+	val common_fifofull_time = Reg(init = Bits(0,width=64))
+	val common_other_execution = Reg(init = Bits(0,width=64))
+	val common_store_overlap = Reg(init = Bits(0,width=64))
+
+	val core_ls_count = Reg(init = Bits(0,width=64))
+
+	when(io.r_fifo || io.stalled_fifo_empty || io.fifo_wide_r || io.stalled_fifo_wide){
+		common_rfifo_exe_time := common_rfifo_exe_time + 1.U
+	}
+	when(!(io.r_fifo || io.stalled_fifo_empty || io.fifo_wide_r || io.stalled_fifo_wide)){
+		common_without_rfifo_exe_time := common_without_rfifo_exe_time + 1.U
+	}
+	when(!io.stalled_r && !io.load_en && !io.store_en && !io.search){
+		common_other_execution := common_other_execution + 1.U
+	}
+
+	when(io.if_en){
+		common_if_exe_time := common_if_exe_time + 2.U
+	}.elsewhen(io.co_if){
+		common_if_exe_time := common_if_exe_time + 1.U
+	}
+
+	when(io.fifo_full || io.fifo_wide_full){
+		common_fifofull_time := common_fifofull_time + 1.U
+	}
+
+	when(io.stalled_vec0 && !io.stalled_r){
+		common_store_overlap := common_store_overlap + 1.U
+	}
+	when(io.core_ls){
+		core_ls_count := core_ls_count + 1.U
+	}
+	io.core_ls_count := core_ls_count
+
+//dfi/hdfi test
+	val dfi_test_store_req = Reg(init = Bits(0,width=64))
+	val dfi_test_load_req = Reg(init = Bits(0,width=64))
+	val dfi_test_lib_req = Reg(init = Bits(0,width=64))
+	val dfi_test_store_time = Reg(init = Bits(0,width=64))
+	val dfi_test_load_time = Reg(init = Bits(0,width=64))
+	val dfi_test_lib_time = Reg(init = Bits(0,width=64))
+	val dfi_test_search_overlap = Reg(init = Bits(0,width=64))
+	val dfi_test_store_time_en = Reg(init = Bool(false))
+	val dfi_test_load_time_en = Reg(init = Bool(false))
+	val dfi_test_lib_time_en = Reg(init = Bool(false))
+	val dfi_test_lib_time_keep = Reg(init = Bool(false))
+	val dfi_test_delay = Reg(init = Bits(0,width=64))
+	val hdfi_test_delay = Reg(init = Bits(0,width=64))
+	val hdfi_test_load_time = Reg(init = Bits(0,width=64))
+	val hdfi_test_load_time_en = Reg(init = Bool(false))
+
+	when(io.dfi_v && !io.dfi_lib_v && io.dfi_rw===0.U){
+		dfi_test_store_req := dfi_test_store_req + 1.U
+	}
+	when(io.dfi_v && !io.dfi_lib_v && io.dfi_rw===1.U){
+		dfi_test_load_req := dfi_test_load_req + 1.U
+	}
+	when(io.dfi_lib_v){
+		dfi_test_lib_req := dfi_test_lib_req + 1.U
+	}
+
+	val info_m = io.fifo_wide_data(64*5+32-1,64*5)
+	val dfi_nofunc = info_m(19) === 0.U
+	val dfi_store = info_m(19) === 0.U  && info_m(16) === 0.U
+	val dfi_load = info_m(19) === 0.U  && info_m(16) === 1.U
+	
+	val dfi_test_store_over = Reg(init = Bool(false))
+	when(io.fifo_wide_r && dfi_nofunc && dfi_store){
+		dfi_test_store_time_en := Bool(true)
+		when(io.stalled_vec0 && !io.memresp ){
+			dfi_test_store_over := Bool(true)
+		}
+	}.elsewhen(dfi_test_store_time_en){
+		when(io.stalled_vec0 && io.memresp && !dfi_test_store_over){
+			dfi_test_store_time_en := Bool(false)
+			dfi_test_store_time := dfi_test_store_time + 1.U
+		}
+		when(io.stalled_vec0 && io.memresp && dfi_test_store_over){
+			dfi_test_store_over := Bool(false)
+			dfi_test_store_time := dfi_test_store_time + 1.U
+		}
+		dfi_test_store_time := dfi_test_store_time + 1.U
+	}
+
+	val dfi_test_delay_over = Reg(init = Bool(false))
+	when(io.fifo_wide_r && dfi_nofunc && dfi_load){
+		dfi_test_load_time_en := Bool(true)
+		dfi_test_delay := dfi_test_delay + (io.cycle_now - fifo.io.dataout)
+		when(io.SEARCH_STATE =/= 0.U && io.SEARCH_STATE =/= 9.U){
+			dfi_test_delay_over := Bool(true)
+		}
+	}.elsewhen(dfi_test_load_time_en){
+		when(io.SEARCH_STATE === 9.U && !dfi_test_delay_over){
+			dfi_test_load_time_en := Bool(false)
+			dfi_test_load_time := dfi_test_load_time + 1.U
+		}
+		when(io.SEARCH_STATE === 9.U && dfi_test_delay_over){
+			dfi_test_delay_over := Bool(false)
+			dfi_test_load_time := dfi_test_load_time + 1.U
+		}
+
+		when(io.if_en && io.inst===Bits(0x1407d0)) {
+			dfi_test_delay_over := Bool(false)
+			dfi_test_load_time_en := Bool(false)
+		}
+		dfi_test_delay := dfi_test_delay + 1.U
+		dfi_test_load_time := dfi_test_load_time + 1.U
+	}
+
+
+	when(io.fifo_wide_r && dfi_nofunc && dfi_load){
+		hdfi_test_load_time_en := Bool(true)
+		hdfi_test_delay := hdfi_test_delay + (io.cycle_now - fifo.io.dataout + 1.U)
+		hdfi_test_load_time := hdfi_test_load_time + 1.U
+	}.elsewhen(hdfi_test_load_time_en){
+		when((io.cmp && io.inst === Bits(0x60000000007307c5L)) || (io.if_en && io.inst===Bits(0x1407d0))){
+			hdfi_test_load_time_en := Bool(false)
+		}
+		hdfi_test_delay := hdfi_test_delay + 1.U
+		hdfi_test_load_time := hdfi_test_load_time + 1.U
+	}
+
+	when(!dfi_nofunc && io.fifo_wide_r){
+		dfi_test_lib_time_en := Bool(true)
+	}.elsewhen(dfi_test_lib_time_en){
+		when(io.stalled_fifo_wide){
+			dfi_test_lib_time_en := Bool(false)
+			when(io.SEARCH_STATE =/= 0.U || io.stalled_vec0){
+				dfi_test_lib_time_keep := Bool(true)
+			}
+		}
+		dfi_test_lib_time := dfi_test_lib_time + 1.U
+	}.elsewhen(dfi_test_lib_time_keep){
+		when(io.SEARCH_STATE===0.U && !io.stalled_vec0){
+			dfi_test_lib_time_keep := Bool(false)
+		}.otherwise{
+			dfi_test_lib_time := dfi_test_lib_time + 1.U
+		}
+	}
+
+	when(io.SEARCH_STATE =/= 0.U && !io.stalled_r){
+		dfi_test_search_overlap := dfi_test_search_overlap + 1.U
+	}
+
+//cfi test
+	val cfi_test_jalr = Reg(init = Bits(0,width=64))
+	val cfi_test_call = Reg(init = Bits(0,width=64))
+	val cfi_test_ret = Reg(init = Bits(0,width=64))
+	val cfi_test_jalr_time = Reg(init = Bits(0,width=64))
+	val cfi_test_call_time = Reg(init = Bits(0,width=64))
+	val cfi_test_ret_time = Reg(init = Bits(0,width=64))
+	val cfi_test_jalr_time_en = Reg(init = Bool(false))
+	val cfi_test_call_time_en = Reg(init = Bool(false))
+	val cfi_test_call_jalr = Reg(init = Bool(false))
+	val cfi_test_ret_time_en = Reg(init = Bool(false))
+	val cfi_test_call_time_new_en = Reg(init = Bool(false))
+	val cfi_test_ret_time_new_en = Reg(init = Bool(false))
+	val cfi_test_delay = Reg(init = Bits(0,width=64))
+	val cfi_test_delay_en = Reg(init = Bool(false))
+
+	when(io.fifo_r && io.r_fifo_rd===0.U){
+		when((io.fifo_data>>40.U) === 4.U || (io.fifo_data>>40.U) === 1.U){
+			cfi_test_jalr := cfi_test_jalr + 1.U
+		}
+		when((io.fifo_data>>40.U) === 2.U || (io.fifo_data>>40.U) === 4.U){
+			cfi_test_call := cfi_test_call + 1.U
+		}
+		when((io.fifo_data>>40.U) === 3.U){
+			cfi_test_ret := cfi_test_ret + 1.U
+		}
+	}
+
+	val cfi_test_delay_over = Reg(init = Bool(false))
+	when(io.fifo_r && io.r_fifo_rd===0.U && ((io.fifo_data>>40.U) === 4.U || (io.fifo_data>>40.U) === 1.U)){
+		cfi_test_jalr_time_en := Bool(true)
+	}.elsewhen(cfi_test_jalr_time_en){
+		when(io.fifo_r && io.r_fifo_rd===1.U && !cfi_test_delay_en){
+			cfi_test_delay := cfi_test_delay + (io.cycle_now - fifo.io.dataout)
+			cfi_test_delay_en := Bool(true)
+			when(io.SEARCH_STATE=/=0.U && io.SEARCH_STATE =/= 9.U){
+				cfi_test_delay_over :=  Bool(true)
+
+			}
+		}.otherwise{
+			when(io.SEARCH_STATE === 9.U && !cfi_test_delay_over){
+				cfi_test_jalr_time_en := Bool(false)
+				cfi_test_jalr_time := cfi_test_jalr_time + 1.U
+				cfi_test_delay_en := Bool(false)
+			}
+			when(io.SEARCH_STATE === 9.U && cfi_test_delay_over){
+				cfi_test_jalr_time := cfi_test_jalr_time + 1.U
+				cfi_test_delay_over := Bool(false)
+			}
+		}
+
+
+		when(cfi_test_delay_en){ 
+			cfi_test_delay := cfi_test_delay + 1.U 
+			cfi_test_jalr_time := cfi_test_jalr_time + 1.U
+		}
+	}
+
+	when(io.fifo_r && io.r_fifo_rd===0.U && ((io.fifo_data>>40.U) === 2.U || (io.fifo_data>>40.U) === 4.U)){
+		cfi_test_call_time_en := Bool(true)
+		cfi_test_call_jalr := (io.fifo_data>>40.U) === 4.U
+	}.elsewhen(cfi_test_call_time_en){
+		when(io.fifo_r && io.r_fifo_rd===1.U){
+			cfi_test_call_time_new_en := Bool(true)
+		}
+		when(cfi_test_call_time_new_en){cfi_test_call_time := cfi_test_call_time + 1.U}
+		when(io.stalled_vec0 && io.memresp && !cfi_test_call_jalr){
+			cfi_test_call_time_en := Bool(false)
+			cfi_test_call_time_new_en := Bool(false)
+		}.elsewhen(io.SEARCH_STATE === 9.U & cfi_test_call_jalr){
+			cfi_test_call_time_en := Bool(false)
+			cfi_test_call_time_new_en := Bool(false)
+		}
+	}
+
+	val cfi_test_ret_delay = Reg(init = Bits(0,width=64))
+	when(io.fifo_r && io.r_fifo_rd===0.U && (io.fifo_data>>40.U) === 3.U){
+		cfi_test_ret_time_en := Bool(true)
+	}.elsewhen(cfi_test_ret_time_en){
+		when(io.fifo_r && io.r_fifo_rd===1.U && !cfi_test_ret_time_new_en){
+			cfi_test_ret_time_new_en := Bool(true)
+			cfi_test_ret_delay := cfi_test_ret_delay + (io.cycle_now - fifo.io.dataout)
+		}
+		when(cfi_test_ret_time_new_en){
+			cfi_test_ret_time := cfi_test_ret_time + 1.U
+			cfi_test_ret_delay := cfi_test_ret_delay + 1.U
+		}
+		when(io.r_fifo && io.r_fifo_rd_wire===0.U){
+			cfi_test_ret_time_en := Bool(false)
+			cfi_test_ret_time_new_en := Bool(false)
+		}
+	}
+
+//shadow stack
+	val st_test_pop = Reg(init = Bits(0,width=64))
+	val st_test_push = Reg(init = Bits(0,width=64))
+	val st_test_push_time = Reg(init = Bits(0,width=64))
+	val st_test_pop_time = Reg(init = Bits(0,width=64))
+	val st_test_push_time_en = Reg(init = Bool(false))
+	val st_test_push_time_new_en = Reg(init = Bool(false))
+	val st_test_pop_time_en = Reg(init = Bool(false))
+	val st_test_delay = Reg(init = Bits(0,width=64))
+	val st_test_delay_en = Reg(init = Bool(false))
+
+	when(io.store_en){
+		st_test_push := st_test_push + 1.U
+	}
+	when(io.load_en){
+		st_test_pop := st_test_pop + 1.U
+	}
+
+	when(io.fifo_r && io.r_fifo_rd===0.U && (io.fifo_data>>40.U) === 3.U){
+		st_test_pop_time_en := Bool(true)
+	}.elsewhen(st_test_pop_time_en){
+		when(io.fifo_r && io.r_fifo_rd===1.U && !st_test_delay_en){
+			st_test_delay := st_test_delay + (io.cycle_now - fifo.io.dataout)
+			st_test_delay_en := Bool(true)
+		}
+		when(st_test_delay_en){ 
+			st_test_delay := st_test_delay + 1.U 
+			st_test_pop_time := st_test_pop_time + 1.U
+		}
+		when(io.r_fifo && io.r_fifo_rd_wire===0.U){
+			st_test_pop_time_en := Bool(false)
+			st_test_delay_en := Bool(false)
+		}
+	}
+
+	when(io.fifo_r && io.r_fifo_rd===0.U && ((io.fifo_data>>40.U) === 2.U || (io.fifo_data>>40.U) === 4.U )){
+		st_test_push_time_en := Bool(true)
+	}.elsewhen(st_test_push_time_en){
+		when(io.fifo_r && io.r_fifo_rd===1.U){
+			st_test_push_time_new_en := Bool(true)
+		}
+		when(st_test_push_time_new_en){st_test_push_time := st_test_push_time + 1.U }
+		when(io.stalled_vec0 && io.memresp){
+			st_test_push_time_en := Bool(false)
+			st_test_push_time_new_en := Bool(false)
+		}
+	}
+
+//white list
+	val wh_test_load = Reg(init = Bits(0,width=64))
+	val wh_test_load_time = Reg(init = Bits(0,width=64))
+	val wh_test_load_time_en = Reg(init = Bool(false))
+	val wh_test_lib = Reg(init = Bits(0,width=64))
+	val wh_test_lib_time = Reg(init = Bits(0,width=64))
+	val wh_test_lib_time_en = Reg(init = Bool(false))
+	val wh_test_delay = Reg(init = Bits(0,width=64))
+	when(io.fifo_wide_r && dfi_nofunc && dfi_load){
+		wh_test_load_time_en := Bool(true)
+		wh_test_load := wh_test_load + 1.U
+		wh_test_delay := wh_test_delay + (io.cycle_now - fifo.io.dataout)
+	}.elsewhen(wh_test_load_time_en){
+		wh_test_load_time := wh_test_load_time + 1.U
+		wh_test_delay := wh_test_delay + 1.U
+		when(io.stalled_fifo_wide){
+			wh_test_load_time_en := Bool(false)
+		}
+	}
+	// when(io.fifo_r && io.fifo_data(40)===0.U){
+	// 	wh_test_lib_time_en := Bool(true)
+	// 	wh_test_lib := wh_test_lib + 1.U
+	// }.elsewhen(wh_test_lib_time_en){
+	// 	wh_test_lib_time := wh_test_lib_time + 1.U
+	// 	when(io.r_fifo){
+	// 		wh_test_lib_time_en := Bool(false)
+	// 	}
+	// }
+
+	when(io.rst){
+		//test info
+		dfi_test_store_req := 0.U
+		dfi_test_load_req := 0.U
+		dfi_test_lib_req := 0.U
+		dfi_test_store_time := 0.U
+		dfi_test_load_time := 0.U
+		dfi_test_lib_time := 0.U
+		dfi_test_search_overlap := 0.U
+		dfi_test_store_time_en := Bool(false)
+		dfi_test_load_time_en := Bool(false)
+		dfi_test_lib_time_en := Bool(false)
+		dfi_test_lib_time_keep := Bool(false)
+		dfi_test_delay_over := Bool(false)
+		dfi_test_store_over := Bool(false)
+
+		common_rfifo_exe_time := 0.U
+		common_without_rfifo_exe_time := 0.U
+		common_if_exe_time := 0.U
+		common_fifofull_time := 0.U
+		common_other_execution := 0.U
+		common_store_overlap := 0.U
+
+		cfi_test_jalr := 0.U
+		cfi_test_call := 0.U
+		cfi_test_ret := 0.U
+		cfi_test_jalr_time := 0.U
+		cfi_test_call_time := 0.U
+		cfi_test_ret_time := 0.U
+		cfi_test_jalr_time_en := Bool(false)
+		cfi_test_call_jalr := Bool(false)
+		cfi_test_call_time_en := Bool(false)
+		cfi_test_ret_time_en := Bool(false)
+		cfi_test_call_time_new_en:= Bool(false)
+		cfi_test_ret_time_new_en := Bool(false)
+		cfi_test_delay_over := Bool(false)
+		cfi_test_ret_delay := 0.U
+
+		st_test_pop := 0.U
+		st_test_push := 0.U
+		st_test_push_time := 0.U
+		st_test_pop_time := 0.U
+		st_test_push_time_en := Bool(false)
+		st_test_push_time_new_en := Bool(false)
+		st_test_pop_time_en := Bool(false)
+		st_test_delay_en := 0.U
+
+		wh_test_load := 0.U
+		wh_test_load_time := 0.U
+		wh_test_load_time_en := Bool(false)
+		wh_test_lib := 0.U
+		wh_test_lib_time := 0.U
+		wh_test_lib_time_en := Bool(false)
+
+		dfi_test_delay := 0.U
+		hdfi_test_delay := 0.U
+		hdfi_test_load_time := 0.U
+		hdfi_test_load_time_en := Bool(false)
+		cfi_test_delay := 0.U
+		cfi_test_delay_en := Bool(false)
+		st_test_delay := 0.U
+		wh_test_delay := 0.U
+
+		core_ls_count := 0.U
+	}
+		io.dfi_test_store_req := dfi_test_store_req
+		io.dfi_test_load_req := dfi_test_load_req
+		io.dfi_test_lib_req := dfi_test_lib_req
+		io.dfi_test_store_time := dfi_test_store_time
+		io.dfi_test_load_time := dfi_test_load_time
+		io.dfi_test_lib_time := dfi_test_lib_time
+		io.dfi_test_search_overlap := dfi_test_search_overlap
+
+		io.common_rfifo_exe_time := common_rfifo_exe_time
+		io.common_without_rfifo_exe_time := common_without_rfifo_exe_time
+		io.common_if_exe_time := common_if_exe_time
+		io.common_fifofull_time := common_fifofull_time
+		io.common_other_execution := common_other_execution
+		io.common_store_overlap := common_store_overlap
+
+		io.cfi_test_jalr := cfi_test_jalr
+		io.cfi_test_call := cfi_test_call
+		io.cfi_test_ret := cfi_test_ret
+		io.cfi_test_jalr_time := cfi_test_jalr_time
+		io.cfi_test_call_time := cfi_test_call_time
+		io.cfi_test_ret_time := cfi_test_ret_time
+
+		io.st_test_pop := st_test_pop
+		io.st_test_push := st_test_push
+		io.st_test_push_time := st_test_push_time
+		io.st_test_pop_time := st_test_pop_time
+
+		io.wh_test_load := wh_test_load
+		io.wh_test_lib := wh_test_lib
+		io.wh_test_lib_time := wh_test_lib_time
+		io.wh_test_load_time := wh_test_load_time
+
+		io.dfi_test_delay := dfi_test_delay
+		io.cfi_test_delay := cfi_test_delay
+		io.cfi_test_ret_delay := cfi_test_ret_delay
+		io.hdfi_test_delay := hdfi_test_delay
+		io.hdfi_test_load_time := hdfi_test_load_time
+		io.st_test_delay := st_test_delay
+		io.wh_test_delay := wh_test_delay
+
+}
+
+class signal_network(implicit p: Parameters) extends Module {
+	val io = IO(new Bundle{
+		val core_a0 = Input(UInt(64.W))
+		val core_a1 = Input(UInt(64.W))
+		val core_a2 = Input(UInt(64.W))
+		val core_stack = Input(UInt(64.W))
+		val mem_tar_addr = Input(UInt(48.W))
+		val core_pc = Input(UInt(48.W))
+		val dfi_id = Input(UInt(16.W))
+		val lib_info = Input(UInt(32.W))
+		val narrow = Input(UInt(57.W))
+		val fifo_out = Output(UInt(512.W))
+	})
+
+	// val fifo_wide_input = Wire(UInt(512.W))
+	// val fifo_narrow_input = Wire(UInt(64.W))
+	// io.fifo_narrow := fifo_narrow_input
+	// io.fifo_wide := fifo_wide_input
+
+	val fifo_network_narrow = io.narrow
+
+	val mem_tar_addr = io.mem_tar_addr
+	val core_pc = io.core_pc
+	val core_a0 = io.core_a0 //4
+	val core_a1 = io.core_a1 //4
+	val core_a2 = io.core_a2 //4
+	val funcstackaddr = io.core_stack - 8.U //4
+	val ExInfo_id = io.dfi_id  //1
+	val ExInfo_func = io.lib_info
+	//dfi-v cfi-v dfi_lib-v  total
+	//63    62    61         25
+
+val fifo_narrow_shift0 =Wire(UInt(8.W))
+val fifo_narrow_shift1 =Wire(UInt(8.W))
+val fifo_narrow_shift2 =Wire(UInt(8.W))
+val fifo_narrow_shift3 =Wire(UInt(8.W))
+val fifo_narrow_shift4 =Wire(UInt(8.W))
+val fifo_narrow_shift5 =Wire(UInt(8.W))
+val fifo_narrow_shift6 =Wire(UInt(8.W))
+val fifo_narrow_shift7 =Wire(UInt(8.W))
+val fifo_narrow_shift8 =Wire(UInt(8.W))
+val fifo_narrow_shift9 =Wire(UInt(8.W))
+val fifo_narrow_shift10=Wire(UInt(8.W))
+val fifo_narrow_shift11=Wire(UInt(8.W))
+val fifo_narrow_shift12=Wire(UInt(8.W))
+val fifo_narrow_shift13=Wire(UInt(8.W))
+val fifo_narrow_shift14=Wire(UInt(8.W))
+val fifo_narrow_shift15=Wire(UInt(8.W))
+val fifo_narrow_shift16=Wire(UInt(8.W))
+val fifo_narrow_shift17=Wire(UInt(8.W))
+val fifo_narrow_shift18=Wire(UInt(8.W))
+val fifo_narrow_shift19=Wire(UInt(8.W))
+val fifo_narrow_shift20=Wire(UInt(8.W))
+val fifo_narrow_shift21=Wire(UInt(8.W))
+val fifo_narrow_shift22=Wire(UInt(8.W))
+val fifo_narrow_shift23=Wire(UInt(8.W))
+val fifo_narrow_shift24=Wire(UInt(8.W))
+
+val fifo_narrow_mask0 =Wire(UInt(16.W))
+val fifo_narrow_mask1 =Wire(UInt(16.W))
+val fifo_narrow_mask2 =Wire(UInt(16.W))
+val fifo_narrow_mask3 =Wire(UInt(16.W))
+val fifo_narrow_mask4 =Wire(UInt(16.W))
+val fifo_narrow_mask5 =Wire(UInt(16.W))
+val fifo_narrow_mask6 =Wire(UInt(16.W))
+val fifo_narrow_mask7 =Wire(UInt(16.W))
+val fifo_narrow_mask8 =Wire(UInt(16.W))
+val fifo_narrow_mask9 =Wire(UInt(16.W))
+val fifo_narrow_mask10=Wire(UInt(16.W))
+val fifo_narrow_mask11=Wire(UInt(16.W))
+val fifo_narrow_mask12=Wire(UInt(16.W))
+val fifo_narrow_mask13=Wire(UInt(16.W))
+val fifo_narrow_mask14=Wire(UInt(16.W))
+val fifo_narrow_mask15=Wire(UInt(16.W))
+val fifo_narrow_mask16=Wire(UInt(16.W))
+val fifo_narrow_mask17=Wire(UInt(16.W))
+val fifo_narrow_mask18=Wire(UInt(16.W))
+val fifo_narrow_mask19=Wire(UInt(16.W))
+val fifo_narrow_mask20=Wire(UInt(16.W))
+val fifo_narrow_mask21=Wire(UInt(16.W))
+val fifo_narrow_mask22=Wire(UInt(16.W))
+val fifo_narrow_mask23=Wire(UInt(16.W))
+val fifo_narrow_mask24=Wire(UInt(16.W))
+
+	fifo_narrow_shift0 := Mux(fifo_network_narrow(0),1.U,0.U)
+	fifo_narrow_shift1 := Mux(fifo_network_narrow(1),1.U,0.U) + fifo_narrow_shift0
+	fifo_narrow_shift2 := Mux(fifo_network_narrow(2),1.U,0.U) + fifo_narrow_shift1  //mem_tar_addr done
+	fifo_narrow_shift3 := Mux(fifo_network_narrow(3),1.U,0.U) + fifo_narrow_shift2
+	fifo_narrow_shift4 := Mux(fifo_network_narrow(4),1.U,0.U) + fifo_narrow_shift3
+	fifo_narrow_shift5 := Mux(fifo_network_narrow(5),1.U,0.U) + fifo_narrow_shift4  //pc done
+	fifo_narrow_shift6 := Mux(fifo_network_narrow(6),1.U,0.U) + fifo_narrow_shift5
+	fifo_narrow_shift7 := Mux(fifo_network_narrow(7),1.U,0.U) + fifo_narrow_shift6
+	fifo_narrow_shift8 := Mux(fifo_network_narrow(8),1.U,0.U) + fifo_narrow_shift7
+	fifo_narrow_shift9 := Mux(fifo_network_narrow(9),1.U,0.U) + fifo_narrow_shift8  //a0 done
+	fifo_narrow_shift10:= Mux(fifo_network_narrow(10),1.U,0.U) + fifo_narrow_shift9
+	fifo_narrow_shift11:= Mux(fifo_network_narrow(11),1.U,0.U) + fifo_narrow_shift10
+	fifo_narrow_shift12:= Mux(fifo_network_narrow(12),1.U,0.U) + fifo_narrow_shift11
+	fifo_narrow_shift13:= Mux(fifo_network_narrow(13),1.U,0.U) + fifo_narrow_shift12  //a1 done
+	fifo_narrow_shift14:= Mux(fifo_network_narrow(14),1.U,0.U) + fifo_narrow_shift13
+	fifo_narrow_shift15:= Mux(fifo_network_narrow(15),1.U,0.U) + fifo_narrow_shift14
+	fifo_narrow_shift16:= Mux(fifo_network_narrow(16),1.U,0.U) + fifo_narrow_shift15
+	fifo_narrow_shift17:= Mux(fifo_network_narrow(17),1.U,0.U) + fifo_narrow_shift16  //a2 done
+	fifo_narrow_shift18:= Mux(fifo_network_narrow(18),1.U,0.U) + fifo_narrow_shift17
+	fifo_narrow_shift19:= Mux(fifo_network_narrow(19),1.U,0.U) + fifo_narrow_shift18
+	fifo_narrow_shift20:= Mux(fifo_network_narrow(20),1.U,0.U) + fifo_narrow_shift19
+	fifo_narrow_shift21:= Mux(fifo_network_narrow(21),1.U,0.U) + fifo_narrow_shift20  //stack done
+	fifo_narrow_shift22:= Mux(fifo_network_narrow(22),1.U,0.U) + fifo_narrow_shift21  //ExInfo id
+	fifo_narrow_shift23:= Mux(fifo_network_narrow(23),1.U,0.U) + fifo_narrow_shift22
+	fifo_narrow_shift24:= Mux(fifo_network_narrow(24),1.U,0.U) + fifo_narrow_shift23  //ExInfo lib
+
+	fifo_narrow_mask0 := Mux(fifo_network_narrow(0),Bits(0xffff),0.U)
+	fifo_narrow_mask1 := Mux(fifo_network_narrow(1),Bits(0xffff),0.U)
+	fifo_narrow_mask2 := Mux(fifo_network_narrow(2),Bits(0xffff),0.U)
+	fifo_narrow_mask3 := Mux(fifo_network_narrow(3),Bits(0xffff),0.U)
+	fifo_narrow_mask4 := Mux(fifo_network_narrow(4),Bits(0xffff),0.U)
+	fifo_narrow_mask5 := Mux(fifo_network_narrow(5),Bits(0xffff),0.U)
+	fifo_narrow_mask6 := Mux(fifo_network_narrow(6),Bits(0xffff),0.U)
+	fifo_narrow_mask7 := Mux(fifo_network_narrow(7),Bits(0xffff),0.U)
+	fifo_narrow_mask8 := Mux(fifo_network_narrow(8),Bits(0xffff),0.U)
+	fifo_narrow_mask9 := Mux(fifo_network_narrow(9),Bits(0xffff),0.U)
+	fifo_narrow_mask10:=Mux(fifo_network_narrow(10),Bits(0xffff),0.U)
+	fifo_narrow_mask11:=Mux(fifo_network_narrow(11),Bits(0xffff),0.U)
+	fifo_narrow_mask12:=Mux(fifo_network_narrow(12),Bits(0xffff),0.U)
+	fifo_narrow_mask13:=Mux(fifo_network_narrow(13),Bits(0xffff),0.U)
+	fifo_narrow_mask14:=Mux(fifo_network_narrow(14),Bits(0xffff),0.U)
+	fifo_narrow_mask15:=Mux(fifo_network_narrow(15),Bits(0xffff),0.U)
+	fifo_narrow_mask16:=Mux(fifo_network_narrow(16),Bits(0xffff),0.U)
+	fifo_narrow_mask17:=Mux(fifo_network_narrow(17),Bits(0xffff),0.U)
+	fifo_narrow_mask18:=Mux(fifo_network_narrow(18),Bits(0xffff),0.U)
+	fifo_narrow_mask19:=Mux(fifo_network_narrow(19),Bits(0xffff),0.U)
+	fifo_narrow_mask20:=Mux(fifo_network_narrow(20),Bits(0xffff),0.U)
+	fifo_narrow_mask21:=Mux(fifo_network_narrow(21),Bits(0xffff),0.U)
+	fifo_narrow_mask22:=Mux(fifo_network_narrow(22),Bits(0xffff),0.U)
+	fifo_narrow_mask23:=Mux(fifo_network_narrow(23),Bits(0xffff),0.U)
+	fifo_narrow_mask24:=Mux(fifo_network_narrow(24),Bits(0xffff),0.U)
+
+	io.fifo_out:= (mem_tar_addr(15,0)&fifo_narrow_mask0)| ((mem_tar_addr(31,16)&fifo_narrow_mask1)<<(fifo_narrow_shift0<<4)) | ((mem_tar_addr(47,32)&fifo_narrow_mask2)<<(fifo_narrow_shift1<<4)) |
+	((core_pc(15,0)&fifo_narrow_mask3)<<(fifo_narrow_shift2<<4)) | ((core_pc(31,16)&fifo_narrow_mask4)<<(fifo_narrow_shift3<<4)) | ((core_pc(47,32)&fifo_narrow_mask5)<<(fifo_narrow_shift4<<4)) |
+	((core_a0(15,0)&fifo_narrow_mask6)<<(fifo_narrow_shift5<<4)) | ((core_a0(31,16)&fifo_narrow_mask7)<<(fifo_narrow_shift6<<4)) | ((core_a0(47,32)&fifo_narrow_mask8)<<(fifo_narrow_shift7<<4)) |
+	((core_a0(63,48)&fifo_narrow_mask9)<<(fifo_narrow_shift8<<4)) | ((core_a1(15,0)&fifo_narrow_mask10)<<(fifo_narrow_shift9<<4)) | ((core_a1(31,16)&fifo_narrow_mask11)<<(fifo_narrow_shift10<<4)) |
+	((core_a1(47,32)&fifo_narrow_mask12)<<(fifo_narrow_shift11<<4)) | ((core_a1(63,48)&fifo_narrow_mask13)<<(fifo_narrow_shift12<<4)) | ((core_a2(15,0)&fifo_narrow_mask14)<<(fifo_narrow_shift13<<4)) |
+	((core_a2(31,16)&fifo_narrow_mask15)<<(fifo_narrow_shift14<<4)) | ((core_a2(47,32)&fifo_narrow_mask16)<<(fifo_narrow_shift15<<4)) | ((core_a2(63,48)&fifo_narrow_mask17)<<(fifo_narrow_shift16<<4)) |
+	((funcstackaddr(15,0)&fifo_narrow_mask18)<<(fifo_narrow_shift17<<4))|((funcstackaddr(31,16)&fifo_narrow_mask19)<<(fifo_narrow_shift18<<4))|((funcstackaddr(47,32)&fifo_narrow_mask20)<<(fifo_narrow_shift19<<4)) | ((funcstackaddr(63,48)&fifo_narrow_mask21)<<(fifo_narrow_shift20)) | ((ExInfo_id&fifo_narrow_mask22) << (fifo_narrow_shift21<<4)) |
+	((ExInfo_func(15,0)&fifo_narrow_mask23)<< (fifo_narrow_shift22<<4)) | ((ExInfo_func(31,16)&fifo_narrow_mask24 )<< (fifo_narrow_shift23<<4))
+}
+
+
+class signal_network_v2(implicit p: Parameters) extends Module {
+	val io = IO(new Bundle{
+		val core_a0 = Input(UInt(64.W))
+		val core_a1 = Input(UInt(64.W))
+		val core_a2 = Input(UInt(64.W))
+		val core_stack = Input(UInt(64.W))
+		val mem_tar_addr = Input(UInt(48.W))
+		val core_pc = Input(UInt(48.W))
+		val dfi_id = Input(UInt(16.W))
+		val lib_info = Input(UInt(32.W))
+		val narrow = Input(UInt(57.W))
+		val fifo_out = Output(UInt(512.W))
+	})
+
+	val v = io.narrow
+
+	val mem_tar_addr = io.mem_tar_addr
+	val core_pc = io.core_pc
+	val core_a0 = io.core_a0 //4
+	val core_a1 = io.core_a1 //4
+	val core_a2 = io.core_a2 //4
+	val funcstackaddr = io.core_stack - 8.U //4
+	val ExInfo_id = io.dfi_id  //1
+	val ExInfo_func = io.lib_info
+	//dfi-v cfi-v dfi_lib-v  total
+	//63    62    61         25
+	val din = Cat(ExInfo_func,ExInfo_id,funcstackaddr,core_a2,core_a1,core_a0,core_pc,mem_tar_addr)
+
+	val mask = Wire(Vec(25,UInt(16.W)))
+	for(i <- 0 to 24){
+		mask(i) := Cat(v(i),v(i),v(i),v(i),v(i),v(i),v(i),v(i),v(i),v(i),v(i),v(i),v(i),v(i),v(i),v(i))
+	}
+
+	val new_d = Wire(Vec(25,UInt(16.W)))
+	for(i <- 0 to 24){
+		new_d(i) := din(16*(i+1) - 1,16*i) & mask(i)
+	}
+	val vsum = Wire(Vec(25,UInt(6.W)))
+	for(i <- 1 to 24){
+		vsum(i) := vsum(i-1) + v(i-1)
+	}
+
+
+	val new_dd0 = new_d(0)
+	val new_dd1 = Wire(Vec(2,UInt(16.W)))
+	val new_dd2 = Wire(Vec(3,UInt(16.W)))
+	val new_dd3 = Wire(Vec(4,UInt(16.W)))
+	val new_dd4 = Wire(Vec(5,UInt(16.W)))
+	val new_dd5 = Wire(Vec(6,UInt(16.W)))
+	val new_dd6 = Wire(Vec(7,UInt(16.W)))
+	val new_dd7 = Wire(Vec(8,UInt(16.W)))
+	val new_dd8 = Wire(Vec(9,UInt(16.W)))
+	val new_dd9 = Wire(Vec(10,UInt(16.W)))
+	val new_dd10 = Wire(Vec(11,UInt(16.W)))
+	val new_dd11 = Wire(Vec(12,UInt(16.W)))
+	val new_dd12 = Wire(Vec(13,UInt(16.W)))
+	val new_dd13 = Wire(Vec(14,UInt(16.W)))
+	val new_dd14 = Wire(Vec(15,UInt(16.W)))
+	val new_dd15 = Wire(Vec(16,UInt(16.W)))
+	val new_dd16 = Wire(Vec(17,UInt(16.W)))
+	val new_dd17 = Wire(Vec(18,UInt(16.W)))
+	val new_dd18 = Wire(Vec(19,UInt(16.W)))
+	val new_dd19 = Wire(Vec(20,UInt(16.W)))
+	val new_dd20 = Wire(Vec(21,UInt(16.W)))
+	val new_dd21 = Wire(Vec(22,UInt(16.W)))
+	val new_dd22 = Wire(Vec(23,UInt(16.W)))
+	val new_dd23 = Wire(Vec(24,UInt(16.W)))
+	val new_dd24 = Wire(Vec(25,UInt(16.W)))
+
+	for(i <- 0 to 1){
+		when(vsum(1) === i.U)
+			{new_dd1(i) := new_d(1) }
+		.otherwise
+			{new_dd1(i) := 0.U }
+	}
+	for(i <- 0 to 2){
+		when(vsum(2) === i.U)
+			{new_dd2(i) := new_d(2) }
+		.otherwise	
+			{new_dd2(i) := 0.U }
+	}
+	for(i <- 0 to 3){
+		when(vsum(3)===i.U)
+			{new_dd3(i) := new_d(3) }
+		.otherwise
+			{new_dd3(i) := 0.U }
+	}
+	for(i <- 0 to 4){
+		when(vsum(4)===i.U)
+			{new_dd4(i) := new_d(4) }
+		.otherwise	
+			{new_dd4(i) := 0.U }
+	}
+	for(i <- 0 to 5){
+		when(vsum(5) === i.U)
+			{new_dd5(i) := new_d(5) }
+		.otherwise
+			{new_dd5(i) := 0.U }
+	}
+	for(i <- 0 to 6){
+		when(vsum(6) === i.U)
+			{new_dd6(i) := new_d(6) }
+		.otherwise
+			{new_dd6(i) := 0.U }
+	}
+	for(i <- 0 to 7){
+		when(vsum(7) === i.U)
+			{new_dd7(i) := new_d(7) }
+		.otherwise
+			{new_dd7(i) := 0.U }
+	}
+	for(i <- 0 to 8){
+		when(vsum(8) === i.U)
+			{new_dd8(i) := new_d(8) }
+		.otherwise
+			{new_dd8(i) := 0.U }
+	}
+	for(i <- 0 to 9){
+		when(vsum(9) === i.U)
+			{new_dd9(i) := new_d(9) }
+		.otherwise
+			{new_dd9(i) := 0.U }
+	}
+	for(i <- 0 to 10){
+		when(vsum(10) === i.U)
+			{new_dd10(i) := new_d(10) }
+		.otherwise
+			{new_dd10(i) := 0.U }
+	}
+	for(i <- 0 to 11){
+		when(vsum(11) === i.U)
+			{new_dd11(i) := new_d(11) }
+		.otherwise
+			{new_dd11(i) := 0.U }
+	}
+	for(i <- 0 to 12){
+		when(vsum(12) === i.U)
+			{new_dd12(i) := new_d(12) }
+		.otherwise
+			{new_dd12(i) := 0.U }
+	}
+	for(i <- 0 to 13){
+		when(vsum(13) === i.U)
+			{new_dd13(i) := new_d(13) }
+		.otherwise
+			{new_dd13(i) := 0.U }
+	}
+	for(i <- 0 to 14){
+		when(vsum(14) === i.U)
+			{new_dd14(i) := new_d(14) }
+		.otherwise
+			{new_dd14(i) := 0.U }
+	}
+	for(i <- 0 to 15){
+		when(vsum(15) === i.U)
+			{new_dd15(i) := new_d(15) }
+		.otherwise
+			{new_dd15(i) := 0.U }
+	}
+	for(i <- 0 to 16){
+		when(vsum(16) === i.U)
+			{new_dd16(i) := new_d(16) }
+		.otherwise
+			{new_dd16(i) := 0.U }
+	}
+	for(i <- 0 to 17){
+		when(vsum(17) === i.U)
+			{new_dd17(i) := new_d(17) }
+		.otherwise
+			{new_dd17(i) := 0.U }
+	}
+	for(i <- 0 to 18){
+		when(vsum(18) === i.U)
+			{new_dd18(i) := new_d(18) }
+		.otherwise
+			{new_dd18(i) := 0.U }
+	}
+	for(i <- 0 to 19){
+		when(vsum(19) === i.U)
+			{new_dd19(i) := new_d(19) }
+		.otherwise
+			{new_dd19(i) := 0.U }
+	}
+	for(i <- 0 to 20){
+		when(vsum(20) === i.U)
+			{new_dd20(i) := new_d(20) }
+		.otherwise
+			{new_dd20(i) := 0.U }
+	}
+	for(i <- 0 to 21){
+		when(vsum(21) === i.U)
+			{new_dd21(i) := new_d(21) }
+		.otherwise
+			{new_dd21(i) := 0.U }
+	}
+	for(i <- 0 to 22){
+		when(vsum(22) === i.U)
+			{new_dd22(i) := new_d(22) }
+		.otherwise
+			{new_dd22(i) := 0.U }
+	}
+	for(i <- 0 to 23){
+		when(vsum(23) === i.U)
+			{new_dd23(i) := new_d(23) }
+		.otherwise
+			{new_dd23(i) := 0.U }
+	}
+	for(i <- 0 to 24){
+		when(vsum(24) === i.U)
+			{new_dd24(i) := new_d(24) }
+		.otherwise
+			{new_dd24(i) := 0.U }
+	}
+
+	val res_dd = Wire(Vec(25,UInt(16.W)))
+	res_dd(0) := new_dd0 | new_dd1(0) | new_dd2(0) |new_dd3(0) |new_dd4(0) |new_dd5(0) |new_dd6(0) |new_dd7(0) |new_dd8(0) |new_dd9(0) |new_dd10(0) |new_dd11(0) |
+	new_dd12(0) |new_dd13(0) |new_dd14(0) |new_dd15(0) |new_dd16(0) |new_dd17(0) |new_dd18(0) |new_dd19(0) |new_dd20(0) |new_dd21(0) |new_dd22(0) |new_dd23(0) | new_dd24(0) 
+
+	res_dd(1) :=  new_dd1(1) | new_dd2(1) |new_dd3(1) |new_dd4(1) |new_dd5(1) |new_dd6(1) |new_dd7(1) |new_dd8(1) |new_dd9(1) |new_dd10(1) |new_dd11(1) |
+	new_dd12(1) |new_dd13(1) |new_dd14(1) |new_dd15(1) |new_dd16(1) |new_dd17(1) |new_dd18(1) |new_dd19(1) |new_dd20(1) |new_dd21(1) |new_dd22(1) |new_dd23(1) | new_dd24(1) 
+
+	res_dd(2) :=  new_dd2(2) |new_dd3(2) |new_dd4(2) |new_dd5(2) |new_dd6(2) |new_dd7(2) |new_dd8(2) |new_dd9(2) |new_dd10(2) |new_dd11(2) |
+	new_dd12(2) |new_dd13(2) |new_dd14(2) |new_dd15(2) |new_dd16(2) |new_dd17(2) |new_dd18(2) |new_dd19(2) |new_dd20(2) |new_dd21(2) |new_dd22(2) |new_dd23(2) | new_dd24(2) 
+
+	res_dd(3) :=  new_dd3(3) |new_dd4(3) |new_dd5(3) |new_dd6(3) |new_dd7(3) |new_dd8(3) |new_dd9(3) |new_dd10(3) |new_dd11(3) | new_dd12(3) | 
+	new_dd13(3) |new_dd14(3) |new_dd15(3) |new_dd16(3) |new_dd17(3) |new_dd18(3) |new_dd19(3) |new_dd20(3) |new_dd21(3) |new_dd22(3) |new_dd23(3) | new_dd24(3) 
+
+	res_dd(4) :=  new_dd4(4) |new_dd5(4) |new_dd6(4) |new_dd7(4) |new_dd8(4) |new_dd9(4) |new_dd10(4) |new_dd11(4) | new_dd12(4) |
+	new_dd13(4) |new_dd14(4) |new_dd15(4) |new_dd16(4) |new_dd17(4) |new_dd18(4) |new_dd19(4) |new_dd20(4) |new_dd21(4) |new_dd22(4) |new_dd23(4) | new_dd24(4) 
+
+	res_dd(5) :=  new_dd5(5) |new_dd6(5) |new_dd7(5) |new_dd8(5) |new_dd9(5) |new_dd10(5) |new_dd11(5) | new_dd12(5) | new_dd13(5) |new_dd14(5) |
+	new_dd15(5) |new_dd16(5) |new_dd17(5) |new_dd18(5) |new_dd19(5) |new_dd20(5) |new_dd21(5) |new_dd22(5) |new_dd23(5) | new_dd24(5) 
+
+	res_dd(6) :=  new_dd6(6) |new_dd7(6) |new_dd8(6) |new_dd9(6) |new_dd10(6) |new_dd11(6) | new_dd12(6) | new_dd13(6) |new_dd14(6) |
+	new_dd15(6) |new_dd16(6) |new_dd17(6) |new_dd18(6) |new_dd19(6) |new_dd20(6) |new_dd21(6) |new_dd22(6) |new_dd23(6) | new_dd24(6) 
+
+	res_dd(7) :=  new_dd7(7) |new_dd8(7) |new_dd9(7) |new_dd10(7) |new_dd11(7) | new_dd12(7) | new_dd13(7) |new_dd14(7) |
+	new_dd15(7) |new_dd16(7) |new_dd17(7) |new_dd18(7) |new_dd19(7) |new_dd20(7) |new_dd21(7) |new_dd22(7) |new_dd23(7) | new_dd24(7) 
+
+	res_dd(8) :=  new_dd8(8) |new_dd9(8) |new_dd10(8) |new_dd11(8) | new_dd12(8) | new_dd13(8) |new_dd14(8) |
+	new_dd15(8) |new_dd16(8) |new_dd17(8) |new_dd18(8) |new_dd19(8) |new_dd20(8) |new_dd21(8) |new_dd22(8) |new_dd23(8) | new_dd24(8) 
+
+	res_dd(9) :=  new_dd9(9) |new_dd10(9) |new_dd11(9) | new_dd12(9) | new_dd13(9) |new_dd14(9) |
+	new_dd15(9) |new_dd16(9) |new_dd17(9) |new_dd18(9) |new_dd19(9) |new_dd20(9) |new_dd21(9) |new_dd22(9) |new_dd23(9) | new_dd24(9) 
+
+	res_dd(10) :=  new_dd10(10) |new_dd11(10) | new_dd12(10) | new_dd13(10) |new_dd14(10) |
+	new_dd15(10) |new_dd16(10) |new_dd17(10) |new_dd18(10) |new_dd19(10) |new_dd20(10) |new_dd21(10) |new_dd22(10) |new_dd23(10) | new_dd24(10) 
+
+	res_dd(11) :=  new_dd11(11) | new_dd12(11) | new_dd13(11) |new_dd14(11) |new_dd15(11) |new_dd16(11) |
+	new_dd17(11) |new_dd18(11) |new_dd19(11) |new_dd20(11) |new_dd21(11) |new_dd22(11) |new_dd23(11) | new_dd24(11) 
+
+	res_dd(12) :=  new_dd12(12) | new_dd13(12) |new_dd14(12) |new_dd15(12) |new_dd16(12) |new_dd17(12) |new_dd18(12) |new_dd19(12) |new_dd20(12) |new_dd21(12) |new_dd22(12) |new_dd23(12) | new_dd24(12) 
+	res_dd(13) :=  new_dd13(13) |new_dd14(13) |new_dd15(13) |new_dd16(13) |new_dd17(13) |new_dd18(13) |new_dd19(13) |new_dd20(13) |new_dd21(13) |new_dd22(13) |new_dd23(13) | new_dd24(13) 
+	res_dd(14) :=  new_dd14(14) |new_dd15(14) |new_dd16(14) |new_dd17(14) |new_dd18(14) |new_dd19(14) |new_dd20(14) |new_dd21(14) |new_dd22(14) |new_dd23(14) | new_dd24(14) 
+	res_dd(15) :=  new_dd15(15) |new_dd16(15) |new_dd17(15) |new_dd18(15) |new_dd19(15) |new_dd20(15) |new_dd21(15) |new_dd22(15) |new_dd23(15) | new_dd24(15) 
+	res_dd(16) :=  new_dd16(16) |new_dd17(16) |new_dd18(16) |new_dd19(16) |new_dd20(16) |new_dd21(16) |new_dd22(16) |new_dd23(16) | new_dd24(16) 
+	res_dd(17) :=  new_dd17(17) |new_dd18(17) |new_dd19(17) |new_dd20(17) |new_dd21(17) |new_dd22(17) |new_dd23(17) | new_dd24(17) 
+	res_dd(18) :=  new_dd18(18) |new_dd19(18) |new_dd20(18) |new_dd21(18) |new_dd22(18) |new_dd23(18) | new_dd24(18) 
+	res_dd(19) :=  new_dd19(19) |new_dd20(19) |new_dd21(19) |new_dd22(19) |new_dd23(19) | new_dd24(19) 
+	res_dd(20) :=  new_dd20(20) |new_dd21(20) |new_dd22(20) |new_dd23(20) | new_dd24(20) 
+	res_dd(21) :=  new_dd21(21) |new_dd22(21) |new_dd23(21) | new_dd24(21) 
+	res_dd(22) :=  new_dd22(22) |new_dd23(22) |new_dd24(22) 
+	res_dd(23) :=  new_dd23(23) |new_dd24(23) 
+	res_dd(24) :=  new_dd24(24) 
+
+	io.fifo_out := Cat(res_dd(24),res_dd(23),res_dd(22),res_dd(21),res_dd(20),res_dd(19),
+	res_dd(18),res_dd(17),res_dd(16), res_dd(15),res_dd(14),res_dd(13),res_dd(12),res_dd(11),res_dd(10),
+	res_dd(9),res_dd(8),res_dd(7),res_dd(6),res_dd(5),res_dd(4),res_dd(3),res_dd(2),res_dd(1),res_dd(0))
+
+}
+
+
+//This module describe the pipeline of the micro-core
+/*
+@first stage : fetch the inst from IMem, IMem is limited in 50 instructions(6 bits address)
+@second stage: decode and if needed fetch the memeroy data to normal-reg and do some computation
+*/
+class micro_core(mem_Depth:Int)(implicit p: Parameters) extends Module with co_core_const {
+	val io = IO(new Bundle{
+		val stall = Bool(INPUT)
+		val stalled = Bool(OUTPUT)
+		val main_core_stall = Bool(OUTPUT)
+		val mem_initial = new mem_initial
+		val mem_p = new HellaCacheIO
+		val info = new info
+		//CFI instrumentation control
+		val cfi_all = Bool(INPUT)
+		val cfi_jalr = Bool(INPUT)
+		val init_rocc = Bool(INPUT)
+		val pc_min = Input(UInt(64.W))
+		val pc_max = Input(UInt(64.W))
+		//exception
+		val coreexception = Bool(OUTPUT)
+		val canexception = Bool(INPUT)
+		//DFI func argv sysc
+		val core_a0 = Input(UInt(64.W))
+		val core_a1 = Input(UInt(64.W))
+		val core_a2 = Input(UInt(64.W))
+		val funcmax = Input(UInt(64.W))
+		val debugmode = Input(UInt(64.W))
+	})
+
+	def DEBUG: Bool = Bool(false)
+	def FIFO_WIDE_DEPTH: Int  = 4
+	def FIFO_WIDE_WIDTH: Int  = 512
+	def N_FIFO_DWPTH: Int = 4
+	def N_FIFO_WIDE: Int = 64
+
+	val SEARCH_STATE = Reg(init = Bits(0,width=8))
+	//input and output
+	val fifo_r = Reg(init = Bool(false)) 
+	val stalled_vec = Reg(init = Vec.fill(2){Bool(false)}) 
+	val stalled_fifo_empty = Reg(init = Bool(false))
+	val stalled_fifo_wide = Reg(init = Bool(false))
+	val stalled_s_pop = Reg(init = Bool(false))
+	val search_stalled = Wire(Bool())
+	val store_block_w = Wire(Bool())
+	val load_ooo_en_w = Wire(Bool())
+	val waiting_store_w = Wire(Bool())
+	val load_wait_store_w = Wire(Bool())
+	val search_wait_search_w = Wire(Bool())
+	val search_wait_store_w = Wire(Bool())
+	val load_wait_search_w = Wire(Bool())
+	val store_wait_search_w = Wire(Bool())
+	val rocc_done = Reg(init = Bool(false)) //set by debug info
+ 	val stalled_r = rocc_done || (stalled_vec(0) && store_block_w ) || search_wait_search_w || search_wait_store_w || load_wait_search_w || store_wait_search_w || waiting_store_w || load_wait_store_w || (load_ooo_en_w && stalled_vec(1)) || stalled_fifo_empty || stalled_fifo_wide || fifo_r || stalled_s_pop// || SEARCH_STATE =/= 0.U || stalled_vec(0) 
+ 	//val stalled_r = rocc_done || stalled_vec(0) ||  stalled_vec(1) || stalled_fifo_empty || stalled_fifo_wide || fifo_r || SEARCH_STATE =/= 0.U
+	//some situation, we need to stall the fifo
+	io.stalled := stalled_r
+	
+
+	val reg = Reg(init = Vec.fill(64){Bits(0,width = 64)})
+
+	val fifo =Module(new DFIFIFO(N_FIFO_DWPTH,N_FIFO_WIDE))
+	val fifo_rst_w = Wire(Bool())
+	fifo.io.read := fifo_r
+	fifo.io.rst := fifo_rst_w
+
+	val search_cmp = Module(new search_cmp)
+	val search_record = Module(new search_hit_buf)
+	val key_record = Module(new search_hit_buf)
+
+
+	val initial_done_w = Wire(Bool())
+	val cfi_en_w = Wire(Bool())
+	val mem_state_w = Wire(UInt(4.W))
+	//stall the main core with some situation
+	val inst_stall = Reg(init = Bool(true))
+	val fifo_wide_full = Wire(Bool())
+	val fifo_wide_empty = Wire(Bool())
+	//the cache reset need time to do 
+	val init_rocc_stall = Reg(init = Bool(false))
+	val debugout_w = Wire(Bool())
+	io.main_core_stall :=  ((((io.mem_initial.valid || mem_state_w =/= 0.U) && !initial_done_w) || (initial_done_w && inst_stall )) && !rocc_done) || debugout_w || init_rocc_stall || (cfi_en_w && fifo.io.full)
+
+	val cmd_fire_suc = io.info.cmd.valid && io.info.cmd.ready
+	val cmd_ready = Reg(init = Bool(true))
+	val dfi_lib_wire = Wire(Bool())
+	when(cmd_fire_suc){
+		cmd_ready := Bool(false)
+	}.otherwise{
+		cmd_ready := Bool(true)
+	}
+	io.info.cmd.ready := Mux(rocc_done,Bool(true),cmd_ready && !fifo.io.full && !fifo_wide_full && !io.main_core_stall && !dfi_lib_wire)
+
+
+	//Queue for high bandwidth siganls
+	val fifo_wide = Module(new Queue(Bits(width = FIFO_WIDE_WIDTH), FIFO_WIDE_DEPTH))
+	val fifo_wide_rst = Reg(init = Bool(false))
+	val fifo_wide_enqvalid = Reg(init = Bool(false))
+	val fifo_wide_deqready = Reg(init = Bool(false))
+	val fifo_wide_clean = Reg(init = Bool(false))
+	val fifo_wide_datain = Reg(init = Bits(0,width = 512))
+	//fifo_wide.io.enq.valid := fifo_wide_enqvalid
+	//fifo_wide.io.enq.bits := fifo_wide_datain
+	fifo_wide.io.deq.ready := fifo_wide_deqready || fifo_wide_clean
+	// fifo_wide.io.reset := fifo_wide_rst
+	fifo_wide_full := fifo_wide.io.enq.ready === Bool(false)
+	fifo_wide_empty := fifo_wide.io.deq.valid === Bool(false)
+
+
+	//rocc cache
+	def C0W: Int = 10
+	val rcache0 = Module(new rocc_cache(C0W))
+	val rc0_cinv = Reg(init = Bool(false))
+	val rc0_addr = Reg(init = Bits(0,width = 64))
+	val rc0_datain = Reg(init = Bits(0,width = 64))
+	rcache0.io.addr := rc0_addr
+	rcache0.io.datacin := rc0_datain
+	rcache0.io.cin_valid := rc0_cinv
+
+
+	//*****DEBUG varible*****
+	val funccount = Reg(init = Bits(0,width = 64))
+	val funcmax = Reg(init = Bits(0,width = 64))
+	val debug_mode = Reg(init = Bits(0,width=8))
+	
+
+/****************
+ * initial instruction memory
+****************/
+	val i_mem = Mem(256, Bits(width = 64)) 
+	val mem_state = Reg(init = Bits(0,width = 4))
+	mem_state_w := mem_state
+	val dma_len = Reg(init = Bits(0,width = 64))
+	val dma_addr = Reg(init = Bits(0,width = 64))
+	val dma_cnt = Reg(init = Bits(0,width = 16))
+	val req_valid_init = Reg(init = Bool(false))
+	val initial_done_r = Reg(init = Bool(false))
+	io.mem_initial.load_done := initial_done_r
+	initial_done_w := initial_done_r
+
+	switch(mem_state){
+		is(UInt(0)){
+			when(io.mem_initial.valid && !initial_done_r){
+				dma_len  := io.mem_initial.len
+				dma_addr := io.mem_initial.addr
+				mem_state := 1.U
+			}
+		}
+		is(UInt(1)){
+			req_valid_init := Bool(true)
+			when(io.mem_p.req.fire()){
+				mem_state := 2.U
+				req_valid_init := Bool(false)
+			}
+		}
+		is(UInt(2)){
+			when(io.mem_p.resp.valid){
+				dma_cnt := Mux(dma_cnt === dma_len-1.U ,0.U ,dma_cnt+1.U )
+				mem_state := Mux(dma_cnt === dma_len -1.U,0.U ,1.U)
+				initial_done_r := Mux(dma_cnt === dma_len -1.U,Bool(true) ,Bool(false))
+				i_mem(dma_cnt) := io.mem_p.resp.bits.data
+			}
+		}
+	}
+
+
+
+/***********
+ * stage 1
+***********/
+	//@fetch stage: fetch the inst from the Mem the begin address is 0x0
+	val inst = Reg(init = Bits(0,width = 64))
+	val pc = Reg(init = Bits(0,width = 8))
+	//Do util signal
+	val do_util = Reg(init = Bool(false))
+	val do_util_invalid = Reg(init = Bool(false))
+	val co_pc1 = Reg(init = Bits(0,width=8))
+	val co_pc2 = Reg(init = Bits(0,width=8))
+	val co_new_pc = Reg(init = Bits(0,width=8))
+	val co_do_util_happen = Reg(init = Bool(false))
+	//if decode_invald signal
+	val if_en_w = Wire(Bool())
+	val if_new_pc_w = Wire(UInt(32.W))
+	
+	val pc_flush = Reg(init = Bool(false))
+	val co_event_happen_w = Wire(Bool())
+	val decode_invalid = !initial_done_r || pc_flush || RegNext(pc_flush) || do_util_invalid || RegNext(do_util_invalid) || co_do_util_happen || co_event_happen_w || RegNext(if_en_w)
+	
+	val new_pc = Reg(UInt(40.W))
+	//PC GEN, generate the pc
+    val pc_en = !io.stall && !stalled_r && initial_done_r 
+	when(pc_en){
+		when(if_en_w){
+			pc := if_new_pc_w
+		}
+		.elsewhen(!do_util){
+			pc := Mux(pc_flush,new_pc, Mux (co_do_util_happen,co_new_pc ,pc+1.U))
+		}.otherwise{
+			when(do_util_invalid){
+				pc := co_pc1
+			}.otherwise{
+				pc := Mux(pc_flush , new_pc,Mux(pc === co_pc2,co_pc1,pc+1.U ))
+			}
+
+		}
+		inst := i_mem(pc)
+	}
+
+/*********
+ * stage 2
+@Decode and exe stage
+*********/	
+
+	////////////////////////////////////////////////////////////////////co-jump
+	pc_flush := (inst(5,0) === CO_JUMP) && (!decode_invalid) && !stalled_r
+	new_pc := inst(63,6)
+
+	////////////////////////////////////////////////////////////////////co-if
+	val co_if = (inst(5,0) === CO_IF) && (!decode_invalid) && !stalled_r
+	val if_en =  (co_if && inst(63)===1.U && reg(inst(11,6)) =/= inst(17,12)) || (co_if && reg(inst(11,6)) === inst(17,12) )
+	val if_new_pc = Mux(reg(inst(11,6)) === inst(17,12), inst(27,18), inst(37,28) )
+	if_en_w := if_en 
+	if_new_pc_w := if_new_pc
+
+
+	///////////////////////////////////////////////////////////////////Stall control	
+	val stall_change = (inst(5,0) === CO_STALL) && (!decode_invalid) && !stalled_r
+	when(stall_change){
+		when(inst(6) === 1.U){
+			inst_stall := Bool(false)
+		}otherwise{
+			inst_stall := Bool(true)
+		}
+	}
+
+
+
+
+	///////////////////////////////////////////////////////////////////Message Distribute
+	val m_distri = (inst(5,0) === CO_M_DISTRI) && (!decode_invalid) && !stalled_r
+	val m_reg = inst(11,6)
+	val m_res_reg = inst(17,12)
+	val m_res_en = inst(25,18)
+	val m_id = inst(57,26)
+
+	val m_1_id = Wire(UInt(6.W))
+	val m_2_id = Wire(UInt(6.W))
+	val m_3_id = Wire(UInt(6.W))
+	val m_4_id = Wire(UInt(6.W))
+	val m_5_id = Wire(UInt(6.W))
+	val m_6_id = Wire(UInt(6.W))
+	val m_7_id = Wire(UInt(6.W))
+	val m_8_id = Wire(UInt(6.W))
+
+	val m_cat_tmp = Reg(init = Bits(0,width=2))
+	m_1_id := Cat(m_cat_tmp,m_id(3,0) ) + 1.U
+	m_2_id := m_id(7,4) + m_1_id + 1.U
+	m_3_id := m_id(11,8) + m_2_id + 1.U
+	m_4_id := m_id(15,12) + m_3_id + 1.U
+	m_5_id := m_id(19,16) + m_4_id + 1.U
+	m_6_id := m_id(23,20) + m_5_id + 1.U
+	m_7_id := m_id(27,24) + m_6_id + 1.U
+	m_8_id := m_id(31,28) + m_7_id + 1.U
+
+	val m_1_shift = Cat(m_cat_tmp,m_id(3,0)) + 1.U
+	val m_2_shift = Cat(m_cat_tmp,m_id(7,4)) + 1.U
+	val m_3_shift = Cat(m_cat_tmp,m_id(11,8)) + 1.U
+	val m_4_shift = Cat(m_cat_tmp,m_id(15,12)) + 1.U
+	val m_5_shift = Cat(m_cat_tmp,m_id(19,16)) + 1.U
+	val m_6_shift = Cat(m_cat_tmp,m_id(23,20)) + 1.U
+	val m_7_shift = Cat(m_cat_tmp,m_id(27,24)) + 1.U
+	val m_8_shift = Cat(m_cat_tmp,m_id(31,28)) + 1.U
+
+	val m_1_data = reg(m_reg) & ((1.U<<m_1_shift )-1.U)
+	val m_2_data = (reg(m_reg)>>m_1_id) & ((1.U<<m_2_shift)-1.U)
+	val m_3_data = (reg(m_reg)>>m_2_id) & ((1.U<<m_3_shift)-1.U)
+	val m_4_data = (reg(m_reg)>>m_3_id) & ((1.U<<m_4_shift)-1.U)
+	val m_5_data = (reg(m_reg)>>m_4_id) & ((1.U<<m_5_shift)-1.U)
+	val m_6_data = (reg(m_reg)>>m_5_id) & ((1.U<<m_6_shift)-1.U)
+	val m_7_data = (reg(m_reg)>>m_6_id) & ((1.U<<m_7_shift)-1.U)
+	val m_8_data = (reg(m_reg)>>m_7_id) & ((1.U<<m_8_shift)-1.U)
+
+
+	////////////////////////////////////////////////////////////////////co-fifo
+
+	/*
+	1.CFI situation
+		The isCFI && valid is the branch or other jump instruction
+		and we need to hold the next correct instrution then
+	
+	*/
+	val cfi_pc_r_1 = Reg(init = Bits(0,width = 64))
+	val cfi_pc_r_2 = Reg(init = Bits(0,width = 64))
+	when(Bool(true)){
+		cfi_pc_r_2 := cfi_pc_r_1
+		cfi_pc_r_1 := io.info.cfi.bits.pc
+	}
+	val pc_NoChange = cfi_pc_r_1 === io.info.cfi.bits.pc
+
+	val cfi_target_valid = io.info.cfi.bits.valid  && (io.info.cfi.bits.pc >= io.pc_min) && (io.info.cfi.bits.pc <= io.pc_max)
+	val cfi_wait_target = Reg(init = Bool(false))
+	val isCFI_valid = io.cfi_all && io.info.cfi.bits.valid && io.info.cfi.bits.isCFI && io.info.cfi.bits.cfiType =/= 0.U && (io.info.cfi.bits.pc >= io.pc_min) && (io.info.cfi.bits.pc <= io.pc_max)
+
+	val branch_wfifo = isCFI_valid && !cfi_wait_target
+	val	branch_pc = io.info.cfi.bits.pc | (io.info.cfi.bits.cfiType<<40)
+	val tar_wait_wfifo = Reg(init = Bool(false))
+	val tar_pc = Reg(init = Bits(0,width = 64))
+	val branch_pc_reg = Reg(init = Bits(0,width = 64))
+	val wfifo = Reg(init = Bool(false))
+	val fifo_nofull = Reg(init = Bool(false))
+
+	val tar_dif_branch = branch_pc_reg =/= io.info.cfi.bits.pc
+	//we need to hold pc util there are two emtpy entry in fifo
+	when(isCFI_valid && !cfi_wait_target ){ // the 5th statge main stalled will cause the bug
+		cfi_wait_target := Bool(true)
+		tar_wait_wfifo := Bool(false)
+		branch_pc_reg := io.info.cfi.bits.pc
+		when(!fifo.io.full){
+			fifo_nofull := Bool(true)
+		}.otherwise{
+			fifo_nofull := Bool(false)
+		}
+	}.elsewhen(cfi_wait_target){
+		when(cfi_target_valid && !wfifo  && tar_dif_branch){
+			tar_pc := io.info.cfi.bits.pc
+			when(fifo_nofull){
+				wfifo := Bool(false)
+				cfi_wait_target := Bool(false)
+			}.otherwise{
+				wfifo := Bool(true)
+			}
+		}.elsewhen(wfifo){
+			when(!fifo.io.full){
+				cfi_wait_target := Bool(false)
+				tar_wait_wfifo := Bool(true)
+				wfifo := Bool(false)
+			}
+		}
+	}.otherwise{
+		tar_wait_wfifo := Bool(false)
+	}
+
+	val tar_fifo_nofull = cfi_wait_target && cfi_target_valid && ! wfifo && fifo_nofull && tar_dif_branch
+	val tar_wfifo = tar_fifo_nofull || tar_wait_wfifo
+	val tar_cfi_pc = Mux(tar_fifo_nofull,io.info.cfi.bits.pc,tar_pc)	
+	val cfi_valid = (branch_wfifo || tar_wfifo) && io.cfi_all 
+	val branch_valid = branch_wfifo && io.cfi_all
+	val target_valid = tar_wfifo && io.cfi_all
+
+	/*
+	2.DFI info
+	the dfi information is based on the RVDFI
+	*/
+	//Modify===>> need to cache the target address
+	val dfi_tar_buf = Reg(init = Vec.fill(4){Bits(0,width = 64)})
+	val dfi_r_state = Reg(init = Bool(false))
+	val dfi_delay_conflict = Reg(init = Bool(false))
+	val dfi_delay_conflict_cnt = Reg(init = Bits(0,width=16))
+	val dfi_delay = Reg(init = Bits(0,width=16))
+	val dfi_delay_max = Reg(init = Bits(0,width=16))
+	
+	when(dfi_r_state === Bool(false)){
+		when(io.info.cmd.valid && ~io.info.cmd.ready){
+			dfi_r_state := Bool(true)
+			when(io.info.dfi.bits.valid){
+				dfi_delay_conflict := Bool(true)
+			}
+		}
+	}.otherwise{
+		when(io.info.cmd.valid && io.info.cmd.ready){
+			dfi_r_state := Bool(false)
+			dfi_delay := 0.U
+			when(dfi_delay_max < dfi_delay){
+				dfi_delay_max := dfi_delay
+			}
+			dfi_delay_conflict := Bool(false)
+		}
+		when(io.info.dfi.bits.valid){
+			dfi_delay := dfi_delay + 1.U
+		}
+	}
+
+
+	when(io.info.dfi.bits.valid){
+		when(!dfi_r_state && !(io.info.cmd.valid && ~io.info.cmd.ready)){
+			dfi_tar_buf(3) := dfi_tar_buf(2)
+			dfi_tar_buf(2) := dfi_tar_buf(1)
+			dfi_tar_buf(1) := dfi_tar_buf(0)
+		}.otherwise{
+			dfi_tar_buf(3) := dfi_tar_buf(2)
+			dfi_tar_buf(2) := dfi_tar_buf(1)
+			dfi_tar_buf(1) := io.info.dfi.bits.taraddr
+		}
+	}
+
+	when(io.info.dfi.bits.valid && !dfi_r_state && !(io.info.cmd.valid && ~io.info.cmd.ready) ){
+		dfi_tar_buf(0) := io.info.dfi.bits.taraddr
+	}.elsewhen(dfi_r_state && io.info.cmd.valid && io.info.cmd.ready){
+		dfi_tar_buf(0) := dfi_tar_buf(1)
+	}
+
+
+	val dfi_en = Reg(init = Bool(false))
+	val dfi_lib_en = Reg(init = Bool(false))
+	val dfi_v = Reg(init = Bool(false))
+	val dfi_lib_v = Reg(init = Bool(false))
+	dfi_lib_wire := dfi_lib_v
+	val info=(io.info.cmd.bits.inst.funct<<15)|(io.info.cmd.bits.inst.rs2<<10)|(io.info.cmd.bits.inst.rs1<<5)|(io.info.cmd.bits.inst.rd)
+	val dfi_addr = Reg(init = Bits(0,width=40))
+	val dfi_id = Reg(init = Bits(0,width=16))
+	val dfi_rw = Reg(init = Bits(0,width=1))
+	val dfi_lib_err = Reg(init = Bits(0,width=16))
+	val dfi_lib_func = Reg(init = Bits(0,width=4))
+	val dfi_lib_err_id = Reg(init = Bits(0,width=16))
+	val dfi_lib_maxc = Reg(init = Bits(0,width=64))
+	when(io.info.cmd.valid && io.info.cmd.ready){
+		when(info(19)  === 1.U){
+			when(io.info.dfi.bits.funcarg2 === 0.U  || io.info.dfi.bits.funcarg2  >= Bits(0x10000000L)){
+				dfi_lib_err := dfi_lib_err + 1.U
+			}
+			when(io.info.dfi.bits.funcarg2 > dfi_lib_maxc){
+				dfi_lib_maxc := io.info.dfi.bits.funcarg2
+				dfi_lib_err_id := info(15,0)
+			}
+
+		}
+	}
+
+
+	val fifo_network_narrow = Reg(init = Bits(0,width = 57))
+	val fifo_network_wide = Reg(init = Bits(0,width = 57))
+	val fifo_wide_en = Reg(init = Bool(false))
+	val fifo_narrow_en = Reg(init = Bool(false))
+	when(inst(5,0) === CO_FIFO_INPUT && !decode_invalid && !stalled_r){
+		when(inst(6) === 1.U){
+			fifo_wide_en := Bool(true)
+			fifo_network_wide := inst(63,7)
+		}.otherwise{
+			fifo_narrow_en := Bool(true)
+			fifo_network_narrow := inst(63,7)
+		}
+	}
+
+	val mem_tar_addr = RegNext(dfi_tar_buf(0)) // 3
+	val core_pc = Mux(tar_wfifo,tar_cfi_pc,branch_pc) // 3
+	val core_a0 = io.info.dfi.bits.funcarg0 //4
+	val core_a1 = io.info.dfi.bits.funcarg1 //4
+	val core_a2 = io.info.dfi.bits.funcarg2 //4
+	val funcstackaddr = io.info.dfi.bits.funcstackaddr //4
+	val ExInfo_id = RegNext(info(15,0))  //1
+	val ExInfo_func = RegNext(info(21,16))
+
+	dfi_v := io.info.cmd.valid && io.info.cmd.ready && info(21,19) ===  0.U
+	dfi_lib_v := io.info.cmd.valid && io.info.cmd.ready && (info(21,19) ===  1.U || info(21,19) ===  5.U ) && (core_a2 =/= 0.U  &&  core_a2 <= Bits(0x10000000L))
+
+	//dfi-v cfi-v dfi_lib-v  total
+	//63    62    61         25
+	val Info_select = Module(new signal_network_v2)
+	Info_select.io.core_a0 := core_a0
+	Info_select.io.core_a1 := core_a1
+	Info_select.io.core_a2 := core_a2
+	Info_select.io.core_stack := funcstackaddr
+	Info_select.io.dfi_id := ExInfo_id
+	Info_select.io.core_pc := core_pc
+	Info_select.io.mem_tar_addr := mem_tar_addr
+	Info_select.io.lib_info := ExInfo_func
+	Info_select.io.narrow := fifo_network_narrow
+
+	val fifo_narrow_valid = (fifo_network_narrow(56) && (dfi_v || dfi_lib_v )) || (fifo_network_narrow(55) && branch_valid)  || (fifo_network_narrow(53) && target_valid)
+	fifo.io.write := fifo_narrow_valid && fifo_narrow_en
+	fifo.io.datain := Info_select.io.fifo_out(63,0)
+
+	cfi_en_w := (fifo_network_narrow(55) && fifo_narrow_en)|| (fifo_network_wide(55) && fifo_wide_en )
+
+	val Info_select_wide = Module(new signal_network_v2)
+	Info_select_wide.io.core_a0 := core_a0
+	Info_select_wide.io.core_a1 := core_a1
+	Info_select_wide.io.core_a2 := core_a2
+	Info_select_wide.io.core_stack := funcstackaddr
+	Info_select_wide.io.dfi_id := ExInfo_id
+	Info_select_wide.io.core_pc := core_pc
+	Info_select_wide.io.mem_tar_addr := mem_tar_addr
+	Info_select_wide.io.lib_info := ExInfo_func
+	Info_select_wide.io.narrow := fifo_network_wide
+	val fifo_wide_valid = (fifo_network_wide(56) && (dfi_v || dfi_lib_v )) || (fifo_network_wide(55) && branch_valid)  || (fifo_network_wide(53) && target_valid)
+	fifo_wide.io.enq.valid := fifo_wide_valid && fifo_wide_en
+	fifo_wide.io.enq.bits := Info_select_wide.io.fifo_out
+
+
+	///////////////////////////////////////////////////////////////co-load/store
+	/*
+	store the reg to mem just need one cycle
+	inst(11,6) is the reg id, the inst (17,12)is reg base add ,inst(23,18) 
+
+	load the mem to reg need 2 cycles. cycle read the mem to tmp
+	inst(11,6) is the tmp reg id
+	*/
+	val store_en = inst(5,0) === CO_STORE && !decode_invalid && !stalled_r 
+	val req_valid_store = Reg(init = Bool(false))
+	val load_en = inst(5,0) === CO_LOAD && !decode_invalid && !stalled_r 
+	val req_valid_load = Reg(init = Bool(false))
+	val offset_addr_s = Reg(init = Bits(0,width =64))
+	val offset_addr_l = Reg(init = Bits(0,width =64))
+	val base_addr_s = Reg(init = Bits(0,width =64))
+	val base_addr_l = Reg(init = Bits(0,width =64))
+	val trans_len = Reg(init = Bits(0,width = 2))
+	val trans_len_new = Reg(init = Bits(0,width = 2))
+	//00 8bytes 01 4bytes 10 2bytes 11 1byte
+	val trans_mask = Mux(trans_len===0.U,UInt("hffffffffffffffff"),Mux(trans_len===1.U,UInt("h00000000ffffffff"),Mux(
+						trans_len===2.U,UInt("h000000000000ffff"),UInt("h000000000000000000ff")	)))
+	
+	val trans_shift = Reg(init = Bits(0,width = 6))
+
+	val load_id = Reg(init = Bits(0,width =6))
+	val store_c = Reg(init = Bool(false))
+	val load_c = Reg(init = Bool(false))
+
+
+
+	val store_mem_done = Reg(init = Bool(false))
+	val load_mem_done = Reg(init = Bool(false))
+
+	val load_data = Reg(init = Bits(0,width = 64))
+	val load_data_valid = Reg(init = Bool(false))
+
+	val store_block = Reg(init = Bool(false))
+	val waiting_store = Reg(init = Bool(false))
+	val store_wait_search = Reg(init = Bool(false))
+	store_block_w := store_block
+	waiting_store_w := waiting_store
+	store_wait_search_w := store_wait_search
+
+	val s2_base_addr_s = Reg(init = Bits(0,width = 64))
+	val s2_offset_addr_s = Reg(init = Bits(0,width = 64))
+	val s2_store_data = Reg(init = Bits(0,width = 64))
+	val s2_trans_len = Reg(init = Bits(0,width = 2))
+	val s2_trans_len_new = Reg(init = Bits(0,width = 2))
+	val s2_trans_shift = Reg(init = Bits(0,width = 6))
+	val s2_store_block = Reg(init = Bool(false))
+	val s2_store_c = Reg(init = Bool(false))
+	//Only wrire the cache when cache hit. Wrire through, wrire non-allocate 
+	val cache_store_hit = (rcache0.io.hit )
+	val store_data = Reg(init = Bits(0,width = 64))
+	when(store_en && !stalled_vec(0) && SEARCH_STATE===0.U){
+		stalled_vec(0) := Bool(true)
+		req_valid_store := Bool(true)
+		base_addr_s := reg(inst(17,12))
+		offset_addr_s := reg(inst(23,18))
+		store_data := reg(inst(11,6))
+		trans_len := inst(25,24)
+		trans_len_new := inst(25,24)
+		trans_shift := (reg(inst(23,18))(2,0)) << 3.U
+		store_c := inst(26)
+		store_block := inst(27) === 0.U
+		rc0_cinv := Bool(false)
+		//the cache operation
+		when(inst(26)){
+			rc0_addr := reg(inst(17,12)) + reg(inst(23,18))
+		}
+	}.elsewhen(store_en && ( stalled_vec(0) || SEARCH_STATE =/= 0.U)){
+		req_valid_store := Bool(false)
+		when(stalled_vec(0)){
+			waiting_store := Bool(true)
+		}.elsewhen(SEARCH_STATE=/=0.U){
+			store_wait_search := Bool(true)
+		}
+
+		s2_base_addr_s := reg(inst(17,12))
+		s2_offset_addr_s := reg(inst(23,18))
+		s2_store_data := reg(inst(11,6))
+		s2_trans_len := inst(25,24)
+		s2_trans_len_new := inst(25,24)
+		s2_trans_shift := (reg(inst(23,18))(2,0)) << 3.U
+		s2_store_c := inst(26)
+		s2_store_block := inst(27) === 0.U
+		
+	}
+	
+	when(waiting_store === Bool(true) && !stalled_vec(0)){
+		waiting_store := Bool(false)
+		stalled_vec(0) := Bool(true)
+		req_valid_store := Bool(true)
+		base_addr_s := s2_base_addr_s
+		offset_addr_s := s2_offset_addr_s
+		store_data := s2_store_data
+		trans_len := s2_trans_len
+		trans_len_new := s2_trans_len_new
+		trans_shift := s2_trans_shift
+		store_c := s2_store_c
+		store_block := s2_store_block
+		rc0_cinv := Bool(false)
+		when(s2_store_c){
+			rc0_addr := s2_offset_addr_s + s2_base_addr_s
+		}
+	}.elsewhen(store_wait_search && SEARCH_STATE === 0.U){
+	    store_wait_search := Bool(false)
+		stalled_vec(0) := Bool(true)
+		req_valid_store := Bool(true)
+		base_addr_s := s2_base_addr_s
+		offset_addr_s := s2_offset_addr_s
+		store_data := s2_store_data
+		trans_len := s2_trans_len
+		trans_len_new := s2_trans_len_new
+		trans_shift := s2_trans_shift
+		store_c := s2_store_c
+		store_block := s2_store_block
+		rc0_cinv := Bool(false)
+		when(s2_store_c){
+			rc0_addr := s2_offset_addr_s + s2_base_addr_s
+		}	
+	}
+
+	when(stalled_vec(0)){
+		req_valid_store := Mux(io.mem_p.req.fire(), Bool(false), req_valid_store)
+		when(store_c && io.mem_p.req.fire()){
+			rc0_cinv := rcache0.io.hit
+			rc0_datain := (rcache0.io.datacout & (~(trans_mask << trans_shift ))) + ((store_data & trans_mask)<<trans_shift)
+		}.otherwise{
+			rc0_cinv := Bool(false)
+		}
+		when(cache_store_hit && io.mem_p.resp.valid){
+			printf("Store cache hit! Addr:%x\n",base_addr_s+offset_addr_s)
+		}
+		stalled_vec(0) := Mux(io.mem_p.resp.valid,Bool(false), stalled_vec(0) )
+	}.otherwise{
+	}
+
+		
+	val cache_load_hit = (rcache0.io.hit ) 
+	val load_data_debug = rcache0.io.datacout
+	val req_load_done = Reg(init = Bool(false))
+
+
+	val load_ooo_en = Reg(init = Bool(false))
+	load_ooo_en_w := load_ooo_en
+
+	val load_wait_store = Reg(init = Bool(false))
+	val load_wait_search = Reg(init = Bool(false))
+	load_wait_store_w := load_wait_store
+	load_wait_search_w := load_wait_search
+
+	val s2_load_trans_shift = Reg(init = Bits(0,width = 6))
+	val s2_load_trans_len = Reg(init = Bits(0,width = 2))
+	when(load_en && !stalled_vec(0) && SEARCH_STATE===0.U){
+		stalled_vec(1) := Bool(true)
+		base_addr_l := reg(inst(17,12))
+		offset_addr_l := reg(inst(23,18))
+		load_id := inst(11,6)
+		trans_len := inst(25,24)
+		load_c := inst(26)
+		load_ooo_en := inst(27) === 0.U
+		//idle state
+		req_load_done := Bool(false)
+		req_valid_load := Bool(false) 
+		load_data_valid := Bool(false)
+		trans_shift := (reg(inst(23,18))(2,0) ) << 3.U
+		rc0_cinv := Bool(false)
+		//the cache operation
+		when(inst(26)){
+			rc0_addr := reg(inst(17,12)) + reg(inst(23,18))
+		}
+	}.elsewhen(load_en && ( SEARCH_STATE=/=0.U || stalled_vec(0))){
+		when(stalled_vec(0)){
+			load_wait_store := Bool(true)
+		}.elsewhen(SEARCH_STATE =/= 0.U){
+			load_wait_search := Bool(true)
+		}
+		base_addr_l := reg(inst(17,12))
+		offset_addr_l := reg(inst(23,18))
+		load_id := inst(11,6)
+		s2_load_trans_len := inst(25,24)
+		load_c := inst(26)
+		load_ooo_en := inst(27) === 0.U
+		//idle state
+		req_load_done := Bool(false)
+		req_valid_load := Bool(false) 
+		load_data_valid := Bool(false)
+		s2_load_trans_shift := (reg(inst(23,18))(2,0) ) << 3.U
+		
+	}
+
+	when(load_wait_store && !stalled_vec(0)){
+		load_wait_store := Bool(false)
+		stalled_vec(1) :=Bool(true)
+		trans_len  := s2_load_trans_len
+		trans_shift := s2_load_trans_shift
+		rc0_cinv := Bool(false)
+		when(load_c){
+			rc0_addr := offset_addr_l + base_addr_l
+		}
+	}.elsewhen(load_wait_search && SEARCH_STATE === 0.U){
+		load_wait_search := Bool(false)
+		stalled_vec(1) :=Bool(true)
+		trans_len  := s2_load_trans_len
+		trans_shift := s2_load_trans_shift
+		rc0_cinv := Bool(false)
+		when(load_c){
+			rc0_addr := offset_addr_l + base_addr_l
+		}
+	}
+	
+	when(stalled_vec(1) ){
+		when(load_c && cache_load_hit){
+			req_valid_load := Bool(false) 
+			load_data_valid := Bool(true)
+			load_data := ( rcache0.io.datacout >> trans_shift ) & trans_mask
+			when(load_data_valid){
+				stalled_vec(1) := Bool(false)
+				load_data_valid := Bool(false)
+				req_load_done := Bool(false)
+			}
+			printf("Read cache hit! Addr:%x Data:%d\n",base_addr_l+offset_addr_l,load_data_debug)
+		}.otherwise{
+			trans_len_new := 0.U
+			when(!req_load_done){
+				req_valid_load := Bool(true)
+			}
+			offset_addr_l := offset_addr_l - (offset_addr_l & 7.U) 
+			when(io.mem_p.req.fire()){
+				req_load_done := Bool(true)
+				req_valid_load := Bool(false)
+			}
+			when(io.mem_p.resp.valid){
+				load_data := (io.mem_p.resp.bits.data >> trans_shift) & trans_mask
+				load_data_valid := Bool(true)
+				//cache write
+				when(load_c){
+					rc0_cinv := Bool(true)
+					rc0_datain := io.mem_p.resp.bits.data
+				}
+			}
+			when(RegNext(io.mem_p.resp.valid)){
+				stalled_vec(1) :=  Bool(false)
+				rc0_cinv := Bool(false)
+				req_load_done := Bool(false)
+				load_data_valid := Bool(false)
+			}
+		}
+
+
+
+	}.otherwise{
+		load_data_valid := Bool(false)
+		req_valid_load := Bool(false)
+	}
+
+
+
+	///////////////////////////////////////////////////////////////SEARCH
+	//version2, search with hit, if the search result hit, the FSM will break out into IDLE
+	def K_SIZE: Int = 16
+	val res_addr = Reg(init = Bits(0,width=64)) //keep the value of res addr
+	val now_pointer = Reg(init = Bits(0,width=10)) //keep the newest read
+	val res_key = Reg(init = Bits(0,width=64))
+	val search = inst(5,0) === CO_SEARCH && !decode_invalid && !stalled_r
+	val search_key = Reg(init = Bits(0,width=64))
+	val search_value = Reg(init = Bits(0,width=64))
+	val base_head = Reg(init = Bits(0,width=64))
+	val res_head = Reg(init = Bits(0,width=64))
+	val checked_obj = Reg(init = Bits(0,width=64))
+	val search_hitreg = Reg(init = Bits(0,width=6))
+	val search_hit = Reg(init = Bool(false))
+	val search_alu = Reg(init = Bits(0,width=2))
+	val new_table_head = Reg(init = Bits(0,width=64))
+	val load_2_buf_len = Reg(init = Bits(0,width = 64))
+	val res_len = Reg(init = Bits(0,width = 10))
+	val res_len_all = Reg(init = Bits(0,width = 10))
+	val res_data_len = Reg(init = Bits(0,width = 2)) //Like pc 8 byte,so is >>3,like id 2 byte so is >>1
+	//the entry is 64 bits
+	val key0 = search_key(K_SIZE-1,0) <<3
+	val key1 = search_key(2*K_SIZE-1,K_SIZE) <<3
+	val key2 = search_key(3*K_SIZE-1,2*K_SIZE) <<3
+	val key3 = search_key(4*K_SIZE-1,3*K_SIZE) <<3
+	val key_cnt = Reg(init = Bits(0,width = 4))
+	val s_mem_req_valid = Reg(init = Bool(false))
+	val s_mem_req_addr = Reg(init = Bits(0,width=64))
+
+	val load_mask = Mux(res_data_len===3.U,0.U,(1.U<<(2.U-res_data_len)) + ~(1.U<<(2.U-res_data_len)))
+	val load_64 = ((res_len - now_pointer)>>(3.U-res_data_len))
+	val load_ceil = (load_mask & (res_len-now_pointer)) =/= 0.U
+
+
+	//res DMA signals
+	val res_cnt = Reg(init = Bits(0,width=16))
+	val search_reg_w_c = (SEARCH_STATE === Bits(K_RES_C_W) && rcache0.io.hit) && search_alu ===0.U
+	val search_reg_w_m = (SEARCH_STATE === Bits(K_RES_M) && io.mem_p.resp.valid ) && search_alu === 0.U
+	val search_reg_id = res_cnt + 32.U
+	val search_reg_m_result =(io.mem_p.resp.bits.data >> trans_shift) & trans_mask 
+	val search_reg_c_result =(rcache0.io.datacout >> trans_shift) & trans_mask 
+	 
+	//search status
+	val search_s = inst(5,0) === CO_SEARCH_S && !decode_invalid && !stalled_r
+	val search_status = inst(11,6) //reg id status
+	val search_status_value = res_len_all 
+	search_stalled := SEARCH_STATE =/= Bits(K_IDLE) 
+
+	//search reset
+	when( inst(5,0) === CO_SEARCH_RST && !decode_invalid && !stalled_r){
+		now_pointer := 0.U
+		res_len := 0.U
+		res_len_all := 0.U
+	}
+
+	val s_num = Reg(init = Bits(0,width=4))
+	val s_datain = Mux(SEARCH_STATE === Bits(K_RES_C_W),rcache0.io.datacout, io.mem_p.resp.bits.data )
+	val cache_addr_wire = res_head + (res_key<<res_data_len) + (now_pointer<<res_data_len) + (res_cnt<<res_data_len)
+	search_cmp.io.res_len := res_data_len
+	search_cmp.io.checked := checked_obj
+	search_cmp.io.datain := s_datain
+	search_cmp.io.res_addr := rc0_addr(2,0)
+	search_cmp.io.res_num := s_num
+
+
+
+	key_record.io.key := search_value(31,0)
+	key_record.io.value := checked_obj
+	key_record.io.valid := SEARCH_STATE === Bits(K_DATA_HANDLE) && search_value =/= 0.U && search_value(62,0) =/= 0.U && search_value(62,32) =/= 0.U
+
+	val search_to_hit = search_alu===1.U
+	def K_IDLE: Int = 0
+	def K_TS_C: Int = 1   //table search in cahce
+	def K_TS_C_W: Int = 2   //cahce wait
+	def K_TS_M: Int = 3   //table search in mem
+	def K_DATA_HANDLE: Int = 4
+	def K_RES_S: Int = 5   //result table search
+	def K_RES_C: Int = 6   
+	def K_RES_C_W: Int = 7   
+	def K_RES_M: Int =8 
+	def K_S_DONE: Int =9 
+	val search_wait_search = Reg(init = Bool(false))
+	val search_wait_store = Reg(init = Bool(false))
+	search_wait_search_w := search_wait_search
+	search_wait_store_w := search_wait_store
+	val	s2_base_head = Reg(init = Bits(0,width=64))
+	val	s2_res_head = Reg(init = Bits(0,width=64))
+	val	s2_search_key = Reg(init = Bits(0,width=64))
+	val	s2_res_data_len = Reg(init = Bits(0,width=6))
+	val	s2_checked_obj = Reg(init = Bits(0,width=64))
+	val	s2_search_hitreg = Reg(init = Bits(0,width=6))
+	val	s2_search_alu =Reg(init = Bits(0,width=2))
+	val s2_s2reg = Reg(init = Bool(false))
+	val s2reg = Reg(init = Bool(false))
+
+	search_record.io.key := Mux((SEARCH_STATE===0.U && search_wait_search_w) || (!stalled_vec(0) && search_wait_store),s2_search_key ,reg(inst(23,18)))
+	search_record.io.value := Mux((SEARCH_STATE===0.U && search_wait_search_w) || (!stalled_vec(0) && search_wait_store),s2_checked_obj ,reg(inst(35,30)))
+	search_record.io.valid := (search && SEARCH_STATE===0.U && !stalled_vec(0)) || (SEARCH_STATE===0.U && search_wait_search_w) || (!stalled_vec(0) && search_wait_store)
+
+
+	when(search && (SEARCH_STATE =/= 0.U || stalled_vec(0) )){
+		when(SEARCH_STATE =/= 0.U){
+			search_wait_search := Bool(true)
+		}.elsewhen(stalled_vec(0)){
+			search_wait_store := Bool(true)
+		}
+		s2_base_head := reg(inst(11,6))
+		s2_res_head := reg(inst(17,12))
+		s2_search_key := reg(inst(23,18))
+		s2_res_data_len := inst(29,24)
+		s2_checked_obj := reg(inst(35,30))
+		s2_search_hitreg := inst(41,36)
+		s2_search_alu := inst(43,42)
+		s2_s2reg := inst(44)
+	}.elsewhen(SEARCH_STATE === 0.U && search_wait_search){
+		search_wait_search := Bool(false)
+	}.elsewhen(!stalled_vec(0) && search_wait_store){
+		search_wait_store := Bool(false)
+	}
+
+
+
+
+
+	when(SEARCH_STATE === Bits(K_IDLE)){
+		search_hit := Bool(false)
+		when(search && now_pointer===0.U && !stalled_vec(0)){
+			SEARCH_STATE := Bits(K_TS_C)
+			base_head := reg(inst(11,6))
+			res_head := reg(inst(17,12))
+			search_key := reg(inst(23,18))
+			res_data_len := inst(29,24)
+			checked_obj := reg(inst(35,30))
+			search_hitreg := inst(41,36)
+			search_alu := inst(43,42)
+			s2reg := inst(44)
+			// trans_len_new := 0.U 
+			rc0_cinv:=Bool(false)
+			new_table_head := 0.U
+		}.elsewhen(search && now_pointer=/=0.U && !stalled_vec(0)){
+			SEARCH_STATE := Bits(K_RES_S)
+		}.elsewhen(search_wait_search){
+			SEARCH_STATE := Bits(K_TS_C)
+			base_head := s2_base_head
+			res_head := s2_res_head
+			search_key := s2_search_key
+			res_data_len := s2_res_data_len
+			checked_obj := s2_checked_obj
+			search_hitreg := s2_search_hitreg
+			search_alu := s2_search_alu
+			s2reg := s2_s2reg
+			rc0_cinv:=Bool(false)
+			new_table_head := 0.U
+		}.elsewhen(search_wait_store && !stalled_vec(0)){
+			SEARCH_STATE := Bits(K_TS_C)
+			base_head := s2_base_head
+			res_head := s2_res_head
+			search_key := s2_search_key
+			res_data_len := s2_res_data_len
+			checked_obj := s2_checked_obj
+			search_hitreg := s2_search_hitreg
+			search_alu := s2_search_alu
+			s2reg := s2_s2reg
+			rc0_cinv:=Bool(false)
+			new_table_head := 0.U
+		}
+	}.elsewhen(SEARCH_STATE === Bits(K_TS_C)){
+		when(search_record.io.hit && search_to_hit){
+			SEARCH_STATE := Bits(K_S_DONE)
+			search_hit := Bool(true)
+		}.otherwise{
+			SEARCH_STATE := Bits(K_TS_C_W)
+		}
+		trans_len := 0.U
+		s_mem_req_addr := base_head + Mux(key_cnt===0.U,key0,Mux(key_cnt===1.U,key1,Mux(key_cnt===2.U,key2,key3))) + new_table_head
+		rc0_addr := base_head + Mux(key_cnt===0.U,key0,Mux(key_cnt===1.U,key1,Mux(key_cnt===2.U,key2,key3))) + new_table_head
+	}.elsewhen(SEARCH_STATE === Bits(K_TS_C_W)){
+		when(rcache0.io.hit){
+			search_value := rcache0.io.datacout
+			SEARCH_STATE := Bits(K_DATA_HANDLE)
+		}.elsewhen(!stalled_vec(0)){
+			SEARCH_STATE := Bits(K_TS_M)
+			s_mem_req_valid := Bool(true)
+			trans_len_new := 0.U
+		}
+	}.elsewhen(SEARCH_STATE === Bits(K_TS_M)){
+		when(io.mem_p.req.fire()){
+			s_mem_req_valid := Bool(false)
+		}
+		when(io.mem_p.resp.valid){
+			search_value := io.mem_p.resp.bits.data
+			rc0_cinv := Bool(true)
+			rc0_datain := io.mem_p.resp.bits.data
+			SEARCH_STATE := Bits(K_DATA_HANDLE)
+		}
+	}.elsewhen(SEARCH_STATE === Bits(K_DATA_HANDLE)){
+		rc0_cinv := Bool(false)
+		when(search_value === 0.U){
+			SEARCH_STATE := Bits(K_S_DONE)
+			search_hit := search_to_hit
+		}.elsewhen(search_value(63) === 0.U){
+			key_cnt := key_cnt + 1.U
+			SEARCH_STATE := Bits(K_TS_C)
+			new_table_head := search_value(62,0)
+		}.otherwise{
+			key_cnt := 0.U
+			when(search_value(62,32) === 0.U){
+				now_pointer := 0.U
+				res_len := 0.U
+				res_len_all := 0.U
+				SEARCH_STATE := Bits(K_S_DONE)
+				search_hit := search_to_hit
+
+			}.otherwise{
+				SEARCH_STATE := Bits(K_RES_S)
+				res_key := search_value(31,0)
+				res_len := search_value(62,32)   //the length is result length, we need use byte length
+				res_len_all := search_value(62,32)
+				now_pointer := 0.U
+				// when((search_value(63,32) << res_data_len) > 128.U){ //>64bytes, one time is not enough
+				// 	now_pointer := res_len
+				// }.otherwise{
+				// 	now_pointer := 0.U
+				// }
+			}
+		}
+	}.elsewhen(SEARCH_STATE === Bits(K_RES_S)){
+		when(key_record.io.hit && search_to_hit){
+			SEARCH_STATE := Bits(K_S_DONE)
+			search_hit := Bool(true)
+		}.otherwise{
+			load_2_buf_len := Mux(search_to_hit,res_len,Mux(res_len >16.U,16.U,res_len)) //ceil up to 64bits
+			res_cnt := 0.U
+			SEARCH_STATE := Bits(K_RES_C)
+		}
+	}.elsewhen(SEARCH_STATE === Bits(K_RES_C)){
+		rc0_cinv := Bool(false)
+		//cache read
+		trans_len := Mux(res_data_len===3.U,0.U , Mux(res_data_len===2.U,1.U, Mux(res_data_len===1.U,2.U,3.U)))
+		trans_shift := ( (res_head + (res_key<<res_data_len) + (now_pointer<<res_data_len) + (res_cnt<<res_data_len) )& 7.U) * 8.U
+		s_mem_req_addr := res_head + (res_key<<res_data_len) + (now_pointer<<res_data_len) + (res_cnt<<res_data_len)
+		rc0_addr := res_head + (res_key<<res_data_len) + (now_pointer<<res_data_len) + (res_cnt<<res_data_len)
+		SEARCH_STATE := Bits(K_RES_C_W)
+		s_num := Mux( (load_2_buf_len-res_cnt)<=( (8.U-cache_addr_wire(2,0))>>res_data_len) ,load_2_buf_len-res_cnt, (8.U-cache_addr_wire(2,0))>>res_data_len)
+		//s_num := 1.U
+	}.elsewhen(SEARCH_STATE === Bits(K_RES_C_W)){
+		when(rcache0.io.hit){
+			when(search_to_hit){
+				when(search_cmp.io.hit){
+					search_hit := Bool(true)
+					SEARCH_STATE := Bits(K_S_DONE)
+					res_cnt := 0.U
+					now_pointer := 0.U
+				}.elsewhen((res_cnt+s_num)===load_2_buf_len){
+					SEARCH_STATE := Bits(K_S_DONE)
+					res_cnt := 0.U
+					now_pointer := 0.U
+				}.otherwise{
+					SEARCH_STATE := Bits(K_RES_C)
+					res_cnt := res_cnt + s_num
+				}
+			}.elsewhen(res_cnt === load_2_buf_len-1.U){
+				SEARCH_STATE := Bits(K_S_DONE)
+				res_cnt := 0.U
+			}.otherwise{
+				SEARCH_STATE := Bits(K_RES_C)
+				res_cnt := res_cnt + 1.U
+			}
+		}.otherwise{
+			SEARCH_STATE := Bits(K_RES_M)
+			trans_len_new := 0.U
+			s_mem_req_addr:= s_mem_req_addr - (s_mem_req_addr&7.U)
+			s_mem_req_valid := Bool(true)
+		}
+	}.elsewhen(SEARCH_STATE === Bits(K_RES_M) ){
+		when(io.mem_p.req.fire()){
+			s_mem_req_valid := Bool(false)
+		}
+		when(io.mem_p.resp.valid){
+			rc0_cinv := Bool(true)
+			rc0_datain := io.mem_p.resp.bits.data
+			when(search_to_hit ){
+				when(search_cmp.io.hit){
+					search_hit := Bool(true)
+					SEARCH_STATE := Bits(K_S_DONE)
+					res_cnt := 0.U
+					now_pointer := 0.U
+				}.elsewhen((res_cnt+s_num)===load_2_buf_len){
+					SEARCH_STATE := Bits(K_S_DONE)
+					res_cnt := 0.U
+					now_pointer := 0.U
+				}.otherwise{
+					SEARCH_STATE := Bits(K_RES_C)
+					res_cnt := res_cnt + s_num
+				}		
+			}.elsewhen(res_cnt === load_2_buf_len-1.U){
+				res_cnt := 0.U
+				SEARCH_STATE := Bits(K_S_DONE)
+			}.otherwise{
+				res_cnt := res_cnt + 1.U
+				SEARCH_STATE := Bits(K_RES_C)
+			}
+		}
+	}.elsewhen(SEARCH_STATE === Bits(K_S_DONE)){
+		search_hit := Bool(false)
+		rc0_cinv := Bool(false)
+		when(search_to_hit){
+			res_cnt := 0.U
+			now_pointer := 0.U
+		}.elsewhen((res_len - now_pointer) <= 16.U){
+			now_pointer := 0.U
+		}.otherwise{
+			now_pointer := now_pointer + 16.U
+			res_len := res_len - 16.U
+		}
+		SEARCH_STATE := Bits(K_IDLE)
+	}.otherwise{}
+
+
+	//==========================///DEBUG FOR SEARCH
+
+	val s_resp_data0 = Reg(init = Bits(0,width=64))
+	val s_resp_data1 = Reg(init = Bits(0,width=64))
+	val s_resp_data2 = Reg(init = Bits(0,width=64))
+
+	val s_req_addr0 = Reg(init = Bits(0,width=64))
+	val s_req_addr1 = Reg(init = Bits(0,width=64))
+	val s_req_addr2 = Reg(init = Bits(0,width=64))
+
+	when(SEARCH_STATE === Bits(K_RES_M) && io.mem_p.resp.valid ){
+		s_resp_data2 := s_resp_data1
+		s_resp_data1 := s_resp_data0
+		s_resp_data0 := io.mem_p.resp.bits.data
+	}
+
+	when(SEARCH_STATE === Bits(K_RES_M) && io.mem_p.req.fire()){
+		s_req_addr2 := s_req_addr1
+		s_req_addr1 := s_req_addr0
+		s_req_addr0 := io.mem_p.req.bits.addr
+	}
+
+	///////////////////////////////////////////////////////////////ALU
+	//inst(11,6) rs1 inst(17,12) rs2, inst(23,18) rd
+	//CMP 62,61 00:== 01:> 02:<
+	val Add = inst(5,0) === CO_ADD && !decode_invalid && !stalled_r 
+	val Minus = inst(5,0) === CO_MINUS && !decode_invalid && !stalled_r 
+	val Cmp = inst(5,0) === CO_CMP && !decode_invalid && !stalled_r 
+	val SL = inst(5,0) === CO_SL && !decode_invalid && !stalled_r 
+	val RL = inst(5,0) === CO_RL && !decode_invalid && !stalled_r 
+	val LRS = inst(5,0) === CO_LRS && !decode_invalid && !stalled_r 
+	val BIT_ADD = inst(5,0) === CO_BIT_AND && !decode_invalid && !stalled_r 
+
+	
+	val Add_res = Mux(inst(63)===0.U,reg(inst(11,6))+reg(inst(17,12)),reg(inst(11,6))+inst(62,24))
+	val Minus_res = Mux(inst(63)===0.U,reg(inst(11,6))-reg(inst(17,12)),reg(inst(11,6))-inst(62,24))
+	//val Cmp_res = Mux(inst(63)===0.U,Mux(reg(inst(11,6))===reg(inst(17,12)),1.U,0.U),Mux(reg(inst(11,6))===inst(62,24),1.U,0.U) )
+	val SL_res = Mux(inst(63)===0.U,reg(inst(11,6)) << reg(inst(17,12))(6,0),reg(inst(11,6)) << (inst(29,24)))
+	val RL_res = Mux(inst(63)===0.U,reg(inst(11,6)) >> reg(inst(17,12))(6,0),reg(inst(11,6)) >> inst(29,24))
+	val BA_res = Mux(inst(63)===0.U,reg(inst(11,6)) & reg(inst(17,12)),reg(inst(11,6)) & (inst(62,24)))
+
+	val LRS_res = Mux(inst(63)===0.U,(reg(inst(11,6)) >> inst(17,12))<< inst(29,24),(reg(inst(11,6)) << inst(17,12)) >> inst(29,24))
+
+	val cmp_case = inst(62,61)
+	val Cmp_res = (inst(63)===0.U && Mux(cmp_case===0.U,reg(inst(11,6))===reg(inst(17,12)), Mux(cmp_case===1.U,reg(inst(11,6))>reg(inst(17,12)),Mux(cmp_case===2.U,reg(inst(11,6))<reg(inst(17,12)),reg(inst(11,6))=/=reg(inst(17,12))  ))  )  ) || (inst(63)===1.U && Mux(cmp_case===0.U,reg(inst(11,6))===inst(60,24), Mux(cmp_case===1.U,reg(inst(11,6))>inst(60,24),Mux(cmp_case===2.U,reg(inst(11,6))<inst(60,24),reg(inst(11,6))=/=inst(60,24) )  )  )  )
+
+	///////////////////////////////////////////////////////////////Wreg
+	val w_reg = inst(5,0) === CO_WReg && !decode_invalid && !stalled_r 
+	val w_reg_data = inst(63,12)
+
+
+	///////////////////////////////////////////////////////////////read fifo 
+	/*
+	read fifo. read the wide
+	*/
+	val r_fifo = inst(5,0) === CO_R_FIFO && inst(63)===0.U && !decode_invalid && !stalled_r 
+	val r_w_fifo = inst(5,0) === CO_R_FIFO && inst(63)===1.U && !decode_invalid && !stalled_r 
+	val r_fifo_rd = Reg(init = Bits(0,width =6))
+	val rf_clean = Reg(init = Bool(false))
+//	val fifo_r_data =
+	when(r_fifo){
+		stalled_fifo_empty := Bool(true)
+		r_fifo_rd := inst(11,6)
+		rf_clean := inst(12) === 1.U
+		fifo_r := Bool(false)
+	}.elsewhen(stalled_fifo_empty){
+		rf_clean := Bool(false)
+		when(fifo.io.empty){
+			stalled_fifo_empty := Bool(true)
+			fifo_r := Bool(false)
+		}.otherwise{
+			fifo_r := Bool(true)
+			stalled_fifo_empty := Bool(false)
+		}
+	}.otherwise{
+		rf_clean := Bool(false)
+		fifo_r := Bool(false)
+	}
+
+
+	val fifo_w_byte_en = Reg(init = Bits(0,width=8))
+	when(r_w_fifo){
+		fifo_wide_deqready := Bool(true)
+		stalled_fifo_wide := Bool(true)
+		fifo_w_byte_en := inst(13,6)
+	}.elsewhen(stalled_fifo_wide){
+		when(fifo_wide.io.deq.valid){
+			fifo_wide_deqready := Bool(false)
+			stalled_fifo_wide := Bool(false)
+		}.otherwise{
+			fifo_wide_deqready := Bool(true)
+			stalled_fifo_wide := Bool(true)
+
+		}
+	}.otherwise{
+		fifo_wide_deqready := Bool(false)
+		stalled_fifo_wide := Bool(false)
+	}
+
+
+
+
+
+/***********
+  DEBUG 
+  1.....rocc init, info(21,19)===2.U the funcmax will be stored in rs1,debugmode is rs2 -stall maincore -reset registers -read initial message -start main core
+  2.....func signal, info(21,19) ===7.U -funccount + 1
+***********/
+////////////////==============>>>>>
+///////////////Load store ---
+	val rdt_r_cnt = Reg(init = Bits(0,width=64))
+	val rdt_s_cnt = Reg(init = Bits(0,width=64))
+	val search_table_cnt = Reg(init = Bits(0,width=64))
+	val search_res_cnt = Reg(init = Bits(0,width=64))
+	val load_cycle_cnt = Reg(init = Bits(0,width=64))
+	val store_cycyle_cnt = Reg(init = Bits(0,width=64))
+	val search_cycyle_cnt = Reg(init = Bits(0,width=64))
+
+	val load_hit_cnt = Reg(init = Bits(0,width=64))
+	val load_cnt = Reg(init = Bits(0,width=64))
+	val store_hit_cnt = Reg(init = Bits(0,width=64))
+	val store_cnt = Reg(init = Bits(0,width=64))
+	val search_table_hit_cnt = Reg(init = Bits(0,width=64))
+	val search_result_hit_cnt = Reg(init = Bits(0,width=64))
+
+	when(store_en){
+		rdt_s_cnt := rdt_s_cnt + 1.U
+	}
+	when(load_en){
+		rdt_r_cnt := rdt_r_cnt + 1.U
+	}
+
+	when(stalled_vec(0) || store_en){
+		store_cycyle_cnt := store_cycyle_cnt + 1.U
+	}
+
+	when(stalled_vec(1) || load_en){
+		load_cycle_cnt := load_cycle_cnt + 1.U
+	}
+
+	when(SEARCH_STATE =/= 0.U){
+		search_cycyle_cnt := search_cycyle_cnt + 1.U
+		when((io.mem_p.req.fire()&&SEARCH_STATE===Bits(K_TS_M))){
+			search_table_cnt := search_table_cnt + 1.U
+		}
+		when((io.mem_p.req.fire()&&SEARCH_STATE===Bits(K_RES_M))){
+			search_res_cnt := search_res_cnt + 1.U
+		}
+		when(SEARCH_STATE === Bits(K_TS_C_W) && rcache0.io.hit){
+			search_table_hit_cnt := search_table_hit_cnt+1.U
+		}
+		when(SEARCH_STATE === Bits(K_RES_C_W) && rcache0.io.hit){
+			search_result_hit_cnt := search_result_hit_cnt+1.U
+		}
+	}.elsewhen(search){
+		search_cycyle_cnt := search_cycyle_cnt + 1.U
+	}
+
+	when(stalled_vec(1) && io.mem_p.resp.fire()){
+		load_hit_cnt := load_hit_cnt + 1.U
+	}
+	when(load_en){
+		load_cnt := load_cnt + 1.U
+	}
+	when(stalled_vec(0) && store_c && io.mem_p.req.fire() && rcache0.io.hit ){
+		store_hit_cnt := store_hit_cnt + 1.U
+	}
+	when(store_en){
+		store_cnt := store_cnt + 1.U
+	}
+/////////////////false alarm record
+	val alarm_reg0 = Reg(init = Bits(0,width=64))
+	val alarm_reg1 = Reg(init = Bits(0,width=64))
+	val search_count = Reg(init = Bits(0,width=64))
+	val search_bufhit_count = Reg(init = Bits(0,width=64))
+	val search_bufkey_count = Reg(init = Bits(0,width=64))
+	val false_alarm = Reg(init = Bits(0,width=64))
+	val false_accum = Reg(init = Bits(0,width=64))
+	val dfi_hand_cnt = Reg(init = Bits(0,width=64))
+
+	
+	val reg20_alarm0 = Reg(init = Bits(0,width=64))
+	val reg20_alarm1 = Reg(init = Bits(0,width=64))
+	val reg20_0 = Reg(init = Bits(0,width=64))
+	val reg20_1 = Reg(init = Bits(0,width=64))
+	val reg20_cnt = Reg(init = Bits(0,width=64))
+	reg20_0 := reg(20)
+	reg20_1 := reg20_0
+
+	when(reg20_1 =/= reg20_0){
+		reg20_cnt := reg20_cnt + 1.U
+		when(reg20_cnt===0.U){
+			reg20_alarm0 := reg(0) | (reg(1) << 32)
+		}.elsewhen(reg20_cnt===1.U){
+			reg20_alarm1 := reg(0) | (reg(1) << 32 )
+		}
+		
+	}
+
+	val reg21_de = Reg(init = Bits(0,width=64))
+	when(reg(21) > reg21_de){
+		reg21_de := reg(21)
+	}
+
+
+	when(fifo_r || (stalled_fifo_wide && fifo_wide.io.deq.valid)){
+		dfi_hand_cnt := dfi_hand_cnt + 1.U
+	}
+
+	when(search ){
+		search_count := search_count + 1.U
+	}
+
+	when(SEARCH_STATE===Bits(K_S_DONE) && !search_hit){
+		false_alarm := false_alarm+1.U
+		false_accum := false_accum+1.U
+	
+		when(false_alarm === 1.U){
+			alarm_reg1 := search_key | (checked_obj<<16.U)
+		}.elsewhen(false_alarm === 0.U ){
+			alarm_reg0 := search_key | (checked_obj<<16.U)
+		}
+	}
+
+	when(search_record.io.hit ){
+		search_bufhit_count := search_bufhit_count + 1.U
+	}.elsewhen(key_record.io.hit){
+		search_bufkey_count := search_bufkey_count + 1.U
+
+	}
+
+
+
+//////////////////////////////////=========>>>>>>>>  counters for measurement
+		val rocc_m = Module(new rocc_measurement)
+		rocc_m.io.rst := io.init_rocc
+		rocc_m.io.r_fifo := r_fifo
+		rocc_m.io.stalled_fifo_empty := stalled_fifo_empty
+		rocc_m.io.stalled_fifo_wide := stalled_fifo_wide
+		rocc_m.io.if_en := if_en
+		rocc_m.io.co_if := co_if
+		rocc_m.io.fifo_wide_full := fifo_wide_full
+		rocc_m.io.fifo_full := fifo.io.full
+		rocc_m.io.dfi_v := dfi_v
+		rocc_m.io.dfi_lib_v := dfi_lib_v
+		rocc_m.io.dfi_rw := RegNext(info(16))
+		rocc_m.io.fifo_r := fifo_r
+		rocc_m.io.fifo_data := fifo.io.dataout
+		rocc_m.io.fifo_wide_r := stalled_fifo_wide && fifo_wide.io.deq.valid
+		rocc_m.io.fifo_wide_data := fifo_wide.io.deq.bits
+		rocc_m.io.stalled_vec0 := stalled_vec(0)
+		rocc_m.io.stalled_vec1 := stalled_vec(1)
+		rocc_m.io.memresp := io.mem_p.resp.valid
+		rocc_m.io.SEARCH_STATE := SEARCH_STATE
+		rocc_m.io.stalled_r := stalled_r
+		rocc_m.io.r_fifo_rd := r_fifo_rd
+		rocc_m.io.r_fifo_rd_wire := inst(11,6)
+		rocc_m.io.load_en := load_en
+		rocc_m.io.store_en := store_en
+		rocc_m.io.search := search
+		rocc_m.io.fifo_write := (fifo.io.write && !fifo.io.nowfull )|| (fifo_wide.io.enq.valid && fifo_wide.io.enq.ready )
+		rocc_m.io.fifo_data_in:= Mux(fifo_network_narrow(56)||fifo_network_wide(56),io.info.dfi.bits.cycle, io.info.dfi.bits.cycle + 1.U)
+		rocc_m.io.cycle_now := io.info.dfi.bits.cycle_now
+		rocc_m.io.inst := inst
+		rocc_m.io.if_en := if_en
+		rocc_m.io.cmp := Cmp
+		rocc_m.io.core_ls := initial_done_r && io.info.dfi.bits.valid && !rocc_done && !inst_stall
+
+	val fifo_record_num = Reg(init = Bits(0,width=64))
+	val fifo_record_time = Reg(init = Bits(0,width=64))
+	val fifo_record_cnt = Reg(init = Bits(0,width=64))
+	when(fifo_record_cnt === 1000.U){
+		fifo_record_cnt := 0.U
+		when(fifo.io.datacnt>0.U){
+			fifo_record_num := fifo_record_num + fifo.io.datacnt
+			fifo_record_time := fifo_record_time + 1.U
+		}
+	}.otherwise{
+		fifo_record_cnt := fifo_record_cnt + 1.U
+	}
+
+	
+/////////////////=============<<<<<
+
+	val fifo_reset = Reg(init = Bool(false))
+	val maintail = Reg(init = Bool(false))
+	//fifo_wide_rst := fifo_reset
+	fifo_rst_w := fifo_reset
+	//*****************func count
+	when(io.info.cmd.valid && io.info.cmd.ready){
+		when(info(21,19) ===6.U && info(15,0)===0.U ){ //0xc800000b (110)0
+			funccount := funccount + 1.U
+		}.elsewhen(info(21,19) ===3.U && info(15,0)===0.U){ //0x6000000b (011)0
+			maintail := Bool(true)
+			fifo_narrow_en := Bool(false)	
+			fifo_wide_en := Bool(false)	
+			fifo_network_narrow := 0.U
+			fifo_network_wide := 0.U
+		}
+	}
+
+	//cycle of the program 
+	val p_cycle = Reg(init = Bits(0,width=64))
+	when(initial_done_r && !inst_stall && !rocc_done){
+		p_cycle := p_cycle + 1.U
+	}
+	val rc0_rst = Reg(init = Bool(false))
+	rcache0.io.rst := rc0_rst
+	search_record.io.rst := rc0_rst
+	key_record.io.rst := rc0_rst
+
+	//*****************init the rocc state
+	when(io.init_rocc){
+		when(Bool(true)){ //0x4000000b (010)0 000
+			funcmax := io.funcmax
+			debug_mode := io.debugmode
+			//fifo reset and cache flush ---- cache flush
+			trans_len_new := 0.U
+			fifo_reset := Bool(true)
+			fifo_wide_clean := Bool(true)
+			cfi_wait_target := Bool(false)
+			tar_wait_wfifo := Bool(false)
+			wfifo := Bool(false)
+			fifo_nofull := Bool(false)
+			fifo_narrow_en := Bool(false)
+			fifo_wide_en := Bool(false)
+			fifo_network_narrow := 0.U
+			fifo_network_wide := 0.U
+			rc0_rst := Bool(true)
+			init_rocc_stall := Bool(true)
+			//stalled_r
+			stalled_vec(0)    := Bool(false)
+			stalled_vec(1)    := Bool(false)
+			stalled_fifo_empty:= Bool(false)
+			stalled_fifo_wide := Bool(false)
+			fifo_r			  := Bool(false)
+			stalled_s_pop 	  := Bool(false)
+			search_stalled	  := Bool(false)
+			//decode_invalid
+			pc_flush          := Bool(false)
+			do_util_invalid   := Bool(false)
+			co_do_util_happen := Bool(false)
+			//main stall
+			initial_done_r := Bool(false)
+			inst_stall := Bool(true)
+			rocc_done := Bool(false)
+			maintail := Bool(false)
+			pc := 0.U
+			inst := 0.U
+			p_cycle := 0.U
+			do_util := Bool(false)
+			//some status
+			dfi_r_state := Bool(false)
+			search_wait_search := Bool(false)
+			search_wait_store := Bool(false)
+			waiting_store := Bool(false)
+			load_wait_search := Bool(false)
+			store_wait_search := Bool(false)
+			load_wait_store := Bool(false)
+			store_block := Bool(false)
+			load_ooo_en := Bool(false)
+			//debug info
+			rdt_r_cnt := 0.U
+			rdt_s_cnt := 0.U
+			search_cycyle_cnt := 0.U
+			load_cycle_cnt := 0.U
+			store_cycyle_cnt := 0.U
+			load_hit_cnt := 0.U
+			load_cnt := 0.U
+			store_hit_cnt :=0.U
+			store_cnt := 0.U
+			search_table_cnt := 0.U
+			search_res_cnt := 0.U
+			search_result_hit_cnt := 0.U
+			search_table_hit_cnt := 0.U
+			dfi_hand_cnt := 0.U
+			false_alarm := 0.U
+			reg20_cnt := 0.U
+			search_count := 0.U
+			search_bufhit_count := 0.U
+			search_bufkey_count := 0.U
+			dfi_lib_maxc := 0.U
+			dfi_lib_err := 0.U
+			dfi_lib_err_id := 0.U
+			dfi_delay := 0.U
+			dfi_delay_max := 0.U
+			dfi_delay_conflict_cnt := 0.U
+			fifo_record_cnt := 0.U
+			fifo_record_time := 0.U
+			fifo_record_num := 0.U
+			reg21_de := 0.U
+		}
+	}
+	.elsewhen(init_rocc_stall){
+			fifo_reset := Bool(false)
+			rc0_rst := Bool(false)
+			when(rcache0.io.rst_done){
+				init_rocc_stall := Bool(false)
+				fifo_wide_clean := Bool(false)
+			}
+	}
+	.otherwise{
+		fifo_wide_rst := Bool(false)
+		fifo_reset := Bool(false)
+	}
+
+	val stop_exception = Reg(init = Bool(false))
+	io.coreexception := stop_exception
+	val funccount_debug = Reg(init = Bits(0,width=64))
+	val debugout = Reg(init = Bool(false))
+	debugout_w := debugout
+	val debugBaseaddr = UInt("hb5004000")
+	val debugcount = Reg(init = Bits(0,width=16))
+	val debugreq = Reg(init = Bool(false))
+	val debugaddr = Reg(init = Bits(0,width=40))
+	val debugdata = Reg(init = Bits(0,width=64))
+	val debugstate = Reg(init = Bits(0,width = 8))
+	when((funccount === (funcmax -1.U)) || (p_cycle === Bits(0x14f46b0400L) && debug_mode===1.U) ){
+		stop_exception := Bool(true)
+	}.elsewhen(stop_exception){
+		when(io.canexception){
+			stop_exception := Bool(false)
+		}
+	}.otherwise{
+		stop_exception := Bool(false)
+	}
+
+
+	when((p_cycle === Bits(0x14f46b0400L) && debug_mode===1.U) || (funccount === (funcmax-1.U)) || (maintail && fifo.io.empty && (stalled_fifo_empty||stalled_fifo_wide) && !fifo_wide.io.deq.valid)){
+		rocc_done := Bool(true)
+		debugout := Bool(true)
+		funccount := 0.U
+		funccount_debug := funccount
+		maintail := Bool(false)
+		debugstate := 1.U
+		//fifo shutdown
+		fifo_narrow_en := Bool(false)
+		fifo_wide_en := Bool(false)
+		fifo_network_narrow := 0.U
+		fifo_network_wide := 0.U
+		//trans_len_new
+		trans_len_new := 0.U
+	}.elsewhen(debugout){
+		when(DEBUG===Bool(false)){
+			when(debugstate === 1.U){
+				debugreq := Bool(true)
+				when(debugcount===0.U){
+					debugdata := p_cycle
+				}.elsewhen(debugcount===1.U){
+					debugdata := funcmax
+				}.elsewhen(debugcount===2.U){
+					debugdata := funccount_debug
+				}.elsewhen(debugcount===3.U){
+					debugdata := pc
+				}.elsewhen(debugcount===4.U){
+					debugdata := rdt_r_cnt
+				}.elsewhen(debugcount===5.U){
+					debugdata := rdt_s_cnt
+				}.elsewhen(debugcount===6.U){
+					debugdata := load_cycle_cnt
+				}.elsewhen(debugcount===7.U){
+					debugdata := store_cycyle_cnt
+				}.elsewhen(debugcount===8.U){
+					debugdata := search_cycyle_cnt
+				}.elsewhen(debugcount===9.U){
+					debugdata := load_hit_cnt 
+				}.elsewhen(debugcount===10.U){
+					debugdata := load_cnt 
+				}.elsewhen(debugcount===11.U){
+					debugdata := search_table_hit_cnt
+				}.elsewhen(debugcount===12.U){
+					debugdata := search_table_cnt + search_table_hit_cnt
+				}.elsewhen(debugcount===13.U){
+					debugdata := search_result_hit_cnt
+				}.elsewhen(debugcount===14.U){
+					debugdata := search_res_cnt + search_result_hit_cnt
+				}.elsewhen(debugcount===15.U){
+					debugdata := p_cycle
+				}.elsewhen(debugcount===16.U){
+					debugdata := dfi_hand_cnt
+				}.elsewhen(debugcount===17.U){
+					debugdata := search_count
+				}.elsewhen(debugcount===18.U){
+					debugdata := search_bufhit_count
+				}.elsewhen(debugcount===19.U){
+					debugdata := search_bufkey_count
+				}.elsewhen(debugcount===20.U){
+					debugdata := dfi_lib_err
+				}.elsewhen(debugcount===21.U){
+					debugdata := dfi_lib_maxc
+				}.elsewhen(debugcount===22.U){
+					debugdata := reg(20)
+				}.elsewhen(debugcount===23.U){
+					debugdata := rocc_m.io.common_other_execution
+				}.elsewhen(debugcount===24.U){
+					debugdata := rocc_m.io.dfi_test_store_req
+				}.elsewhen(debugcount===25.U){
+					debugdata := rocc_m.io.dfi_test_load_req
+				}.elsewhen(debugcount===26.U){
+					debugdata := rocc_m.io.dfi_test_lib_req
+				}.elsewhen(debugcount===27.U){
+					debugdata := rocc_m.io.dfi_test_store_time
+				}.elsewhen(debugcount===28.U){
+					debugdata := rocc_m.io.dfi_test_load_time
+				}.elsewhen(debugcount===29.U){
+					debugdata := rocc_m.io.dfi_test_lib_time
+				}.elsewhen(debugcount===30.U){
+					debugdata := rocc_m.io.dfi_test_search_overlap
+				}.elsewhen(debugcount===31.U){
+					debugdata := rocc_m.io.cfi_test_jalr
+				}.elsewhen(debugcount===32.U){
+					debugdata := rocc_m.io.cfi_test_call
+				}.elsewhen(debugcount===33.U){
+					debugdata := rocc_m.io.cfi_test_ret
+				}.elsewhen(debugcount===34.U){
+					debugdata := rocc_m.io.cfi_test_jalr_time
+				}.elsewhen(debugcount===35.U){
+					debugdata := rocc_m.io.cfi_test_call_time
+				}.elsewhen(debugcount===36.U){
+					debugdata := rocc_m.io.cfi_test_ret_time
+				}.elsewhen(debugcount===37.U){
+					debugdata := rocc_m.io.st_test_pop
+				}.elsewhen(debugcount===38.U){
+					debugdata := rocc_m.io.st_test_push
+				}.elsewhen(debugcount===39.U){
+					debugdata := rocc_m.io.st_test_pop_time
+				}.elsewhen(debugcount===40.U){
+					debugdata := rocc_m.io.st_test_push_time
+				}.elsewhen(debugcount===41.U){
+					debugdata := rocc_m.io.wh_test_load
+				}.elsewhen(debugcount===42.U){
+					debugdata := rocc_m.io.wh_test_load_time
+				}.elsewhen(debugcount===43.U){
+					debugdata := rocc_m.io.wh_test_lib
+				}.elsewhen(debugcount===44.U){
+					debugdata := rocc_m.io.wh_test_lib_time
+				}.elsewhen(debugcount===45.U){
+					debugdata := rocc_m.io.common_fifofull_time
+				}.elsewhen(debugcount===46.U){
+					debugdata := rocc_m.io.common_if_exe_time
+				}.elsewhen(debugcount===47.U){
+					debugdata := rocc_m.io.common_rfifo_exe_time
+				}.elsewhen(debugcount===48.U){
+					debugdata := rocc_m.io.common_without_rfifo_exe_time
+				}.elsewhen(debugcount===49.U){
+					debugdata := rocc_m.io.dfi_test_delay
+				}.elsewhen(debugcount===50.U){
+					debugdata := rocc_m.io.hdfi_test_delay
+				}.elsewhen(debugcount===51.U){
+					debugdata := rocc_m.io.cfi_test_delay
+				}.elsewhen(debugcount===52.U){
+					debugdata := rocc_m.io.cfi_test_ret_delay
+				}.elsewhen(debugcount===53.U){
+					debugdata := rocc_m.io.st_test_delay
+				}.elsewhen(debugcount===54.U){
+					debugdata := rocc_m.io.wh_test_delay
+				}.elsewhen(debugcount===55.U){
+					debugdata := false_alarm
+				}.elsewhen(debugcount===56.U){
+					debugdata := false_accum
+				}.elsewhen(debugcount===57.U){
+					debugdata := fifo_record_num
+				}.elsewhen(debugcount===58.U){
+					debugdata := fifo_record_time
+				}.elsewhen(debugcount===59.U){
+					debugdata := store_cnt
+				}.elsewhen(debugcount===60.U){
+					debugdata := store_hit_cnt
+				}.elsewhen(debugcount===61.U){
+					debugdata := rocc_m.io.common_store_overlap
+				}.elsewhen(debugcount===62.U){
+					debugdata := rocc_m.io.hdfi_test_load_time
+				}.elsewhen(debugcount===63.U){
+					debugdata := alarm_reg0
+				}.elsewhen(debugcount===64.U){
+					debugdata := alarm_reg1
+				}.elsewhen(debugcount===65.U){
+					debugdata := reg20_alarm0
+				}.elsewhen(debugcount===66.U){
+					debugdata := reg20_alarm1
+				}.elsewhen(debugcount===67.U){
+					debugdata := reg21_de
+				}.elsewhen(debugcount===68.U){
+					debugdata := rocc_m.io.core_ls_count
+				}.otherwise{
+					debugdata := 0.U
+				}
+				//debugdata := Mux(debugcount===0.U,p_cycle,reg(debugcount-1.U))
+				debugaddr := debugBaseaddr + (debugcount<<3.U)
+				when(io.mem_p.req.fire()){
+					debugreq := Bool(false)
+					debugstate := 2.U
+				}
+			}.elsewhen(debugstate ===2.U){
+				when(io.mem_p.resp.valid){
+					when(debugcount === 80.U){
+						debugcount := 0.U
+						debugstate := 0.U
+						debugout := Bool(false)
+					}.otherwise{
+						debugcount := debugcount + 1.U
+						debugstate := 1.U
+					}
+				}
+			}
+		}.otherwise{
+			debugout := Bool(false)
+		}
+	}
+	.otherwise{
+		debugcount := 0.U
+		debugout := Bool(false)
+		debugstate := 0.U
+	}
+
+/***********
+reg IO
+***********/
+	val reg_w_id = Mux(stalled_vec(1),load_id, Mux( fifo_r, r_fifo_rd, Mux(w_reg,inst(11,6),Mux(search_s,search_status ,Mux(search_hit&&s2reg,search_hitreg ,Mux(SEARCH_STATE=/=Bits(K_IDLE) && s2reg, search_reg_id ,inst(23,18)))))  ))
+	val reg_w_en = load_data_valid || Add || Minus || Cmp || SL || RL || LRS || BIT_ADD || w_reg || fifo_r || stalled_s_pop  ||  stalled_fifo_wide || search_s || search_reg_w_c || search_reg_w_m || m_distri || (search_hit && s2reg )
+	//new regfile write rule. The previous rules leads to huge fpga resource uitilization.
+	when(rf_clean || (r_w_fifo && inst(15)===1.U)){
+		for(i<- 0 to 16){
+			reg(i) := 0.U
+		}
+		for(i<-22  to 63){
+			reg(i) := 0.U
+		}
+	}
+	.elsewhen(reg_w_en){
+		when(m_distri){
+			reg(48.U) := Mux(m_res_en(0)===1.U, m_1_data, reg(48.U))
+			reg(48.U+1.U) := Mux(m_res_en(1)===1.U, m_2_data, reg(48.U+1.U))
+			reg(48.U+2.U) := Mux(m_res_en(2)===1.U, m_3_data, reg(48.U+2.U))
+			reg(48.U+3.U) := Mux(m_res_en(3)===1.U, m_4_data, reg(48.U+3.U))
+			reg(48.U+4.U) := Mux(m_res_en(4)===1.U, m_5_data, reg(48.U+4.U))
+			reg(48.U+5.U) := Mux(m_res_en(5)===1.U, m_6_data, reg(48.U+5.U))
+			reg(48.U+6.U) := Mux(m_res_en(6)===1.U, m_7_data, reg(48.U+6.U))
+			reg(48.U+7.U) := Mux(m_res_en(7)===1.U, m_8_data, reg(48.U+7.U))
+		}
+		.elsewhen(stalled_fifo_wide && fifo_wide.io.deq.valid){
+			reg(56.U) := Mux(fifo_w_byte_en(0)===1.U,fifo_wide.io.deq.bits(63,0),reg(56.U))
+			reg(57.U) := Mux(fifo_w_byte_en(1)===1.U,fifo_wide.io.deq.bits(127,64),reg(57.U))
+			reg(58.U) := Mux(fifo_w_byte_en(2)===1.U,fifo_wide.io.deq.bits(191,128),reg(58.U))
+			reg(59.U) := Mux(fifo_w_byte_en(3)===1.U,fifo_wide.io.deq.bits(255,192),reg(59.U))
+			reg(60.U) := Mux(fifo_w_byte_en(4)===1.U,fifo_wide.io.deq.bits(319,256),reg(60.U))
+			reg(61.U) := Mux(fifo_w_byte_en(5)===1.U,fifo_wide.io.deq.bits(383,320),reg(61.U))
+			reg(62.U) := Mux(fifo_w_byte_en(6)===1.U,fifo_wide.io.deq.bits(447,384),reg(62.U))
+			reg(63.U) := Mux(fifo_w_byte_en(7)===1.U,fifo_wide.io.deq.bits(511,448),reg(63.U))
+		}.otherwise{
+			reg(reg_w_id) := Mux(stalled_vec(1),load_data ,Mux(Add,Add_res, Mux(Minus,Minus_res, Mux(Cmp,Cmp_res,Mux(w_reg,w_reg_data,
+									Mux(fifo_r, fifo.io.dataout , Mux(SL,SL_res , Mux(RL,RL_res, Mux(LRS,LRS_res, Mux(BIT_ADD, BA_res,Mux(search_s,search_status_value,
+													Mux(search_hit&&s2reg,1.U ,Mux(search_reg_w_c,search_reg_c_result,Mux(search_reg_w_m ,search_reg_m_result , reg(reg_w_id))) )) ) ) ))  ))))))
+		}
+	}
+
+/************
+mem(cache) IO
+************/
+	val mem_addr = Mux(debugout,debugaddr,Mux(!initial_done_r,dma_addr + dma_cnt * 8.U,Mux(SEARCH_STATE =/= 0.U && !stalled_vec(0), s_mem_req_addr ,Mux(stalled_vec(0),base_addr_s+offset_addr_s,base_addr_l+offset_addr_l)) )) /////////potential bug(0)
+	io.mem_p.req.valid := debugreq || req_valid_init || req_valid_load || req_valid_store || s_mem_req_valid
+	io.mem_p.req.bits.addr := Mux(DEBUG, mem_addr, Mux(mem_addr < Bits(0xb5004000L),Bits(0xb5004000L),Mux(mem_addr > Bits(0xbb004000L),Bits(0xbb004000L),mem_addr)))
+	io.mem_p.req.bits.data := Mux(debugout,debugdata,Mux(stalled_vec(0),store_data << ((io.mem_p.req.bits.addr(2,0)) <<3 ),Bits(0)))
+	io.mem_p.req.bits.tag := 1.U
+	io.mem_p.req.bits.cmd := Mux(debugout,M_XWR,Mux(!initial_done_r || (stalled_vec(1) && !stalled_vec(0)) || (SEARCH_STATE=/=0.U && !stalled_vec(0) ),M_XRD,M_XWR)) // perform a load (M_XWR for stores)
+	io.mem_p.req.bits.phys := Mux(DEBUG,Bool(false),Bool(true))
+	io.mem_p.req.bits.typ := Mux(debugout,MT_D,Mux(trans_len_new===0.U,MT_D,Mux(trans_len_new===1.U,MT_W, Mux(trans_len_new===2.U,MT_H,Mux(trans_len_new===3.U,MT_B,MT_D ))))) 
+
+}
+
+
+
+
+
+
+
+
+
+
+
+//wxr------------
+
+
+
+
+
+
+//wxrqw++++++++++++++++
+class  Co_processor(opcodes: OpcodeSet, val n: Int = 4)(implicit p: Parameters) extends LazyRoCC(opcodes) {
+  override lazy val module = new Co_processor_ModuleImp(this)
+}
+
+class Co_processor_ModuleImp(outer: Co_processor)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
+    with HasCoreParameters {
+  val cmd = io.cmd
+  val funct = cmd.bits.inst.funct
+  val cus_sig = !cmd.bits.inst.xs1 && !cmd.bits.inst.xs2 && !cmd.bits.inst.xd
+
+
+/*
+THe co-core
+*/
+
+val co_core = Module(new micro_core(10))
+co_core.io.info.cfi <> io.cfi
+co_core.io.info.dfi <> io.dfi
+val core_a0 = Reg(init = Bits(0,width=64))
+val core_a1 = Reg(init = Bits(0,width=64))
+val core_a2 = Reg(init = Bits(0,width=64))
+val funcmax = Reg(init = Bits(0,width=64))
+val debugmode = Reg(init = Bits(0,width=64))
+co_core.io.info.cmd.valid := cmd.valid && cus_sig
+co_core.io.info.cmd.bits.rs1 := cmd.bits.rs1
+co_core.io.info.cmd.bits.rs2 := cmd.bits.rs2
+co_core.io.info.cmd.bits.inst <> cmd.bits.inst
+io.mem <> co_core.io.mem_p
+
+co_core.io.core_a0 := core_a0
+co_core.io.core_a1 := core_a1
+co_core.io.core_a2 := core_a2
+
+val cfi_all_end_reg = Reg(init = Bool(false))
+val cfi_jalr_do_reg = Reg(init = Bool(false))
+val init_rocc = Reg(init = Bool(false))
+
+co_core.io.cfi_all := cfi_all_end_reg
+co_core.io.cfi_jalr := cfi_jalr_do_reg
+co_core.io.init_rocc := init_rocc
+co_core.io.funcmax := funcmax
+co_core.io.debugmode := debugmode
+/*Function 1(funct 0 is i_mem 10 is d_mem), load the memory from the rs1, size is rs2 */ 
+  val doLoad = funct === UInt(0)
+  val load_valid = Reg(init = Bool(false)) 
+  val Load_addr = Reg(init = Bits(0,width=64))
+  val Load_size = Reg(init = Bits(0,width=64))
+  co_core.io.mem_initial.addr := Load_addr
+  co_core.io.mem_initial.len := Load_size
+  co_core.io.mem_initial.valid := load_valid
+
+  when(cmd.fire() && doLoad && !cus_sig){
+	Load_addr := cmd.bits.rs1
+	Load_size := cmd.bits.rs2
+	load_valid := Bool(true)
+  }.otherwise{
+	  load_valid := Bool(false)
+  }
+
+/*when cmd 5*/
+  when(cmd.fire() && funct===5.U && !cus_sig){
+	  core_a0 := cmd.bits.rs1
+	  core_a1 := cmd.bits.rs2
+  }.elsewhen(cmd.fire() && funct===6.U && !cus_sig){
+	  core_a2 := cmd.bits.rs1
+  }.elsewhen(cmd.fire() && funct===32.U && !cus_sig){
+	  init_rocc := Bool(true)
+	  funcmax := cmd.bits.rs1
+	  debugmode := cmd.bits.rs2
+  }.otherwise{
+	  init_rocc := Bool(false)
+  }
+
+
+  val pc_min = Reg(init = Bits(0,width=64))
+  val pc_max = Reg(init = Bits(0,width=64))
+  co_core.io.pc_min := pc_min
+  co_core.io.pc_max := pc_max
+  co_core.io.canexception := io.canexception
+  io.coreexception := co_core.io.coreexception
+//CFI stalled
+  val cfi_all_start = funct === UInt(1) && cmd.fire() && cus_sig
+  val cfi_all_end = funct === UInt(2) && cmd.fire() && cus_sig
+  val cfi_jalr_stalled = funct === UInt(3) && cmd.fire() && cus_sig
+  val cfi_jalr_do = funct === UInt(4) && cmd.fire() && !cus_sig
+
+  when(cfi_all_start){
+	  cfi_all_end_reg := Bool(true)
+  }.elsewhen(cfi_all_end){
+	  cfi_all_end_reg := Bool(false)
+  }
+
+
+  when(cfi_jalr_do){
+	  cfi_jalr_do_reg := Bool(true)
+	  pc_min := cmd.bits.rs1
+	  pc_max := cmd.bits.rs2
+  }.elsewhen(cfi_jalr_stalled){
+	  cfi_jalr_do_reg := Bool(false)
+  }
+
+
+
+
+  io.corestall_wxr :=  co_core.io.main_core_stall
+
+
+  cmd.ready :=  co_core.io.info.cmd.ready 
+  io.busy := Bool(false) 
+  io.interrupt := Bool(false)
+
+  }
+
+//wxrqw----------------
+//wxrqw++++++++++++++++
+class  whitelist(opcodes: OpcodeSet, val n: Int = 4)(implicit p: Parameters) extends LazyRoCC(opcodes) {
+  override lazy val module = new whitelist_ModuleImp(this)
+}
+
+class whitelist_ModuleImp(outer: whitelist)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
+    with HasCoreParameters {
+  val cmd = io.cmd
+  val funct = cmd.bits.inst.funct
+
+
+//buffer
+
+	val dfi_tar_buf = Reg(init = Vec.fill(4){Bits(0,width = 64)})
+	val dfi_r_state = Reg(init = Bool(false))
+	val dfi_delay_conflict = Reg(init = Bool(false))
+	val dfi_delay_conflict_cnt = Reg(init = Bits(0,width=16))
+	val dfi_delay = Reg(init = Bits(0,width=16))
+	val dfi_delay_max = Reg(init = Bits(0,width=16))
+	
+	when(dfi_r_state === Bool(false)){
+		when(io.cmd.valid && ~io.cmd.ready){
+			dfi_r_state := Bool(true)
+			when(io.dfi.bits.valid){
+				dfi_delay_conflict := Bool(true)
+			}
+		}
+	}.otherwise{
+		when(io.cmd.valid && io.cmd.ready){
+			dfi_r_state := Bool(false)
+			dfi_delay := 0.U
+			when(dfi_delay_max < dfi_delay){
+				dfi_delay_max := dfi_delay
+			}
+			dfi_delay_conflict := Bool(false)
+		}
+		when(io.dfi.bits.valid){
+			dfi_delay := dfi_delay + 1.U
+		}
+	}
+
+
+	when(io.dfi.bits.valid){
+		when(!dfi_r_state && !(io.cmd.valid && ~io.cmd.ready)){
+			dfi_tar_buf(3) := dfi_tar_buf(2)
+			dfi_tar_buf(2) := dfi_tar_buf(1)
+			dfi_tar_buf(1) := dfi_tar_buf(0)
+		}.otherwise{
+			dfi_tar_buf(3) := dfi_tar_buf(2)
+			dfi_tar_buf(2) := dfi_tar_buf(1)
+			dfi_tar_buf(1) := io.dfi.bits.taraddr
+		}
+	}
+
+	when(io.dfi.bits.valid && !dfi_r_state && !(io.cmd.valid && ~io.cmd.ready) ){
+		dfi_tar_buf(0) := io.dfi.bits.taraddr
+	}.elsewhen(dfi_r_state && io.cmd.valid && io.cmd.ready){
+		dfi_tar_buf(0) := dfi_tar_buf(1)
+	}
+
+
+/*
+THe co-core
+*/
+
+/*Function 1(funct 0 is i_mem 10 is d_mem), load the memory from the rs1, size is rs2 */ 
+  val start = funct === UInt(0)
+  val len = funct === UInt(1)
+  val check = funct === UInt(2)
+  val clear = funct === UInt(3)
+
+  val start_addr = Reg(init = Bits(0,width=64))
+  val check_addr = Reg(init = Bits(0,width=64))
+  val s_len = Reg(init = Bits(0,width=64))
+
+  val en_addr = start + s_len;
+
+  when(cmd.fire() && start){
+	start_addr := cmd.bits.rs1
+  }
+
+
+  when(cmd.fire() && start){
+	s_len := cmd.bits.rs1
+  }
+
+
+val fifo =Module(new DFIFIFO(4,64))
+val fifo_read = Reg(init = Bool(false))
+fifo.io.read := fifo_read
+fifo.io.rst := cmd.fire() && clear
+fifo.io.write := cmd.fire() && check
+fifo.io.datain := dfi_tar_buf(0)
+
+
+val state = Reg(init = Bits(0,width=4))
+val error = Reg(init = Bool(false))
+when(!fifo.io.empty && state === 0.U){
+	check_addr := fifo.io.dataout
+	state := 1.U
+	fifo_read := Bool(false)
+}.elsewhen(state === 1.U){
+	error := check_addr < start_addr || check_addr > en_addr
+	state := 0.U
+	fifo_read := Bool(false)
+}.otherwise{
+	fifo_read := Bool(false)
+	state := 0.U 
+	error := Bool(false)
+}
+
+  io.coreexception := error
+//CFI stalled
+
+  cmd.ready :=  state === 0.U 
+  io.busy := Bool(false) 
+  io.interrupt := Bool(false)
+
+  }
+// class  AccumulatorExample(opcodes: OpcodeSet, val n: Int = 4)(implicit p: Parameters) extends LazyRoCC(opcodes) {
+//   override lazy val module = new AccumulatorExampleModuleImp(this)
+// }
+
+// class AccumulatorExampleModuleImp(outer: AccumulatorExample)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
+//     with HasCoreParameters {
+//   val regfile = Mem(outer.n, UInt(width = xLen))
+//   val busy = Reg(init = Vec.fill(outer.n){Bool(false)})
+
+//   val cmd = Queue(io.cmd)
+//   val funct = cmd.bits.inst.funct
+//   val addr = cmd.bits.rs2(log2Up(outer.n)-1,0)
+//   val doWrite = funct === UInt(0)
+//   val doRead = funct === UInt(1)
+//   val doLoad = funct === UInt(2)
+//   val doAccum = funct === UInt(3)
+//   val memRespTag = io.mem.resp.bits.tag(log2Up(outer.n)-1,0)
+
+//   // datapath
+//   val addend = cmd.bits.rs1
+//   val accum = regfile(addr)
+//   val wdata = Mux(doWrite, addend, accum + addend)
+
+//   when (cmd.fire() && (doWrite || doAccum)) {
+//     regfile(addr) := wdata
+//   }
+
+//   when (io.mem.resp.valid) {
+//     regfile(memRespTag) := io.mem.resp.bits.data
+//     busy(memRespTag) := Bool(false)
+//   }
+
+//   // control
+//   when (io.mem.req.fire()) {
+//     busy(addr) := Bool(true)
+//   }
+
+//   val doResp = cmd.bits.inst.xd
+//   val stallReg = busy(addr)
+//   val stallLoad = doLoad && !io.mem.req.ready
+//   val stallResp = doResp && !io.resp.ready
+
+//   cmd.ready := !stallReg && !stallLoad && !stallResp
+//     // command resolved if no stalls AND not issuing a load that will need a request
+
+//   // PROC RESPONSE INTERFACE
+//   io.resp.valid := cmd.valid && doResp && !stallReg && !stallLoad
+//     // valid response if valid command, need a response, and no stalls
+//   io.resp.bits.rd := cmd.bits.inst.rd
+//     // Must respond with the appropriate tag or undefined behavior
+//   io.resp.bits.data := accum
+//     // Semantics is to always send out prior accumulator register value
+
+//   io.busy := cmd.valid || busy.reduce(_||_)
+//     // Be busy when have pending memory requests or committed possibility of pending requests
+//   io.interrupt := Bool(false)
+//     // Set this true to trigger an interrupt on the processor (please refer to supervisor documentation)
+
+//   // MEMORY REQUEST INTERFACE
+//   io.mem.req.valid := cmd.valid && doLoad && !stallReg && !stallResp
+//   io.mem.req.bits.addr := addend
+//   io.mem.req.bits.tag := addr
+//   io.mem.req.bits.cmd := M_XRD // perform a load (M_XWR for stores)
+//   io.mem.req.bits.typ := MT_D // D = 8 bytes, W = 4, H = 2, B = 1
+//   io.mem.req.bits.data := Bits(0) // we're not performing any stores...
+//   io.mem.req.bits.phys := Bool(false)
+// }
+
+class  TranslatorExample(opcodes: OpcodeSet)(implicit p: Parameters) extends LazyRoCC(opcodes, nPTWPorts = 1) {
+  override lazy val module = new TranslatorExampleModuleImp(this)
+}
+
+class TranslatorExampleModuleImp(outer: TranslatorExample)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
+    with HasCoreParameters {
+  val req_addr = Reg(UInt(width = coreMaxAddrBits))
+  val req_rd = Reg(io.resp.bits.rd)
+  val req_offset = req_addr(pgIdxBits - 1, 0)
+  val req_vpn = req_addr(coreMaxAddrBits - 1, pgIdxBits)
+  val pte = Reg(new PTE)
+
+  val s_idle :: s_ptw_req :: s_ptw_resp :: s_resp :: Nil = Enum(Bits(), 4)
+  val state = Reg(init = s_idle)
+
+  io.cmd.ready := (state === s_idle)
+
+  when (io.cmd.fire()) {
+    req_rd := io.cmd.bits.inst.rd
+    req_addr := io.cmd.bits.rs1
+    state := s_ptw_req
+  }
+
+  private val ptw = io.ptw(0)
+
+  when (ptw.req.fire()) { state := s_ptw_resp }
+
+  when (state === s_ptw_resp && ptw.resp.valid) {
+    pte := ptw.resp.bits.pte
+    state := s_resp
+  }
+
+  when (io.resp.fire()) { state := s_idle }
+
+  ptw.req.valid := (state === s_ptw_req)
+  ptw.req.bits.valid := true.B
+  ptw.req.bits.bits.addr := req_vpn
+
+  io.resp.valid := (state === s_resp)
+  io.resp.bits.rd := req_rd
+  io.resp.bits.data := Mux(pte.leaf(), Cat(pte.ppn, req_offset), SInt(-1, xLen).asUInt)
+
+  io.busy := (state =/= s_idle)
+  io.interrupt := Bool(false)
+  io.mem.req.valid := Bool(false)
+}
+
+class  CharacterCountExample(opcodes: OpcodeSet)(implicit p: Parameters) extends LazyRoCC(opcodes) {
+  override lazy val module = new CharacterCountExampleModuleImp(this)
+  override val atlNode = TLClientNode(Seq(TLClientPortParameters(Seq(TLClientParameters("CharacterCountRoCC")))))
+}
+
+class CharacterCountExampleModuleImp(outer: CharacterCountExample)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
+  with HasCoreParameters
+  with HasL1CacheParameters {
+  val cacheParams = tileParams.icache.get
+
+  private val blockOffset = blockOffBits
+  private val beatOffset = log2Up(cacheDataBits/8)
+
+  val needle = Reg(UInt(width = 8))
+  val addr = Reg(UInt(width = coreMaxAddrBits))
+  val count = Reg(UInt(width = xLen))
+  val resp_rd = Reg(io.resp.bits.rd)
+
+  val addr_block = addr(coreMaxAddrBits - 1, blockOffset)
+  val offset = addr(blockOffset - 1, 0)
+  val next_addr = (addr_block + UInt(1)) << UInt(blockOffset)
+
+  val s_idle :: s_acq :: s_gnt :: s_check :: s_resp :: Nil = Enum(Bits(), 5)
+  val state = Reg(init = s_idle)
+
+  val (tl_out, edgesOut) = outer.atlNode.out(0)
+  val gnt = tl_out.d.bits
+  val recv_data = Reg(UInt(width = cacheDataBits))
+  val recv_beat = Reg(UInt(width = log2Up(cacheDataBeats+1)), init = UInt(0))
+
+  val data_bytes = Vec.tabulate(cacheDataBits/8) { i => recv_data(8 * (i + 1) - 1, 8 * i) }
+  val zero_match = data_bytes.map(_ === UInt(0))
+  val needle_match = data_bytes.map(_ === needle)
+  val first_zero = PriorityEncoder(zero_match)
+
+  val chars_found = PopCount(needle_match.zipWithIndex.map {
+    case (matches, i) =>
+      val idx = Cat(recv_beat - UInt(1), UInt(i, beatOffset))
+      matches && idx >= offset && UInt(i) <= first_zero
+  })
+  val zero_found = zero_match.reduce(_ || _)
+  val finished = Reg(Bool())
+
+  io.cmd.ready := (state === s_idle)
+  io.resp.valid := (state === s_resp)
+  io.resp.bits.rd := resp_rd
+  io.resp.bits.data := count
+  tl_out.a.valid := (state === s_acq)
+  tl_out.a.bits := edgesOut.Get(
+                       fromSource = UInt(0),
+                       toAddress = addr_block << blockOffset,
+                       lgSize = UInt(lgCacheBlockBytes))._2
+  tl_out.d.ready := (state === s_gnt)
+
+  when (io.cmd.fire()) {
+    addr := io.cmd.bits.rs1
+    needle := io.cmd.bits.rs2
+    resp_rd := io.cmd.bits.inst.rd
+    count := UInt(0)
+    finished := Bool(false)
+    state := s_acq
+  }
+
+  when (tl_out.a.fire()) { state := s_gnt }
+
+  when (tl_out.d.fire()) {
+    recv_beat := recv_beat + UInt(1)
+    recv_data := gnt.data
+    state := s_check
+  }
+
+  when (state === s_check) {
+    when (!finished) {
+      count := count + chars_found
+    }
+    when (zero_found) { finished := Bool(true) }
+    when (recv_beat === UInt(cacheDataBeats)) {
+      addr := next_addr
+      state := Mux(zero_found || finished, s_resp, s_acq)
+    } .otherwise {
+      state := s_gnt
+    }
+  }
+
+  when (io.resp.fire()) { state := s_idle }
+
+  io.busy := (state =/= s_idle)
+  io.interrupt := Bool(false)
+  io.mem.req.valid := Bool(false)
+  // Tie off unused channels
+  tl_out.b.ready := Bool(true)
+  tl_out.c.valid := Bool(false)
+  tl_out.e.valid := Bool(false)
+}
+
+class OpcodeSet(val opcodes: Seq[UInt]) {
+  def |(set: OpcodeSet) =
+    new OpcodeSet(this.opcodes ++ set.opcodes)
+
+  def matches(oc: UInt) = opcodes.map(_ === oc).reduce(_ || _)
+}
+
+object OpcodeSet {
+  def custom0 = new OpcodeSet(Seq(Bits("b0001011")))
+  def custom1 = new OpcodeSet(Seq(Bits("b0101011")))
+  def custom2 = new OpcodeSet(Seq(Bits("b1011011")))
+  def custom3 = new OpcodeSet(Seq(Bits("b1111011")))
+  def all = custom0 | custom1 | custom2 | custom3
+}
+
+class RoccCommandRouter(opcodes: Seq[OpcodeSet])(implicit p: Parameters)
+    extends CoreModule()(p) {
+  val io = new Bundle {
+    val in = Decoupled(new RoCCCommand).flip
+    val out = Vec(opcodes.size, Decoupled(new RoCCCommand))
+    val busy = Bool(OUTPUT)
+  }
+
+  val cmd = Queue(io.in)
+  val cmdReadys = io.out.zip(opcodes).map { case (out, opcode) =>
+    val me = opcode.matches(cmd.bits.inst.opcode)
+    out.valid := cmd.valid && me
+    out.bits := cmd.bits
+    out.ready && me
+  }
+  cmd.ready := cmdReadys.reduce(_ || _)
+  io.busy := cmd.valid
+
+  assert(PopCount(cmdReadys) <= UInt(1),
+    "Custom opcode matched for more than one accelerator")
+}

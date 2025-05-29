@@ -1,0 +1,145 @@
+branch: 8000106e
+isret: 1
+target:
+branch: 8000119a
+isret: 1
+target:
+branch: 80001678
+isret: 1
+target:
+branch: 80001968
+isret: 1
+target:
+branch: 80001998
+isret: 1
+target:
+branch: 80001a80
+isret: 0
+target:
+80001048
+branch: 80001ab6
+isret: 1
+target:
+branch: 80001ad2
+isret: 1
+target:
+branch: 80001aee
+isret: 1
+target:
+branch: 80001bf8
+isret: 1
+target:
+branch: 80001d1a
+isret: 1
+target:
+branch: 80001d94
+isret: 1
+target:
+branch: 80001dca
+isret: 1
+target:
+branch: 80001e40
+isret: 1
+target:
+branch: 80001f48
+isret: 1
+target:
+branch: 80001fe2
+isret: 1
+target:
+branch: 80002006
+isret: 1
+target:
+branch: 80002030
+isret: 1
+target:
+branch: 80002086
+isret: 1
+target:
+branch: 800021d2
+isret: 1
+target:
+branch: 80002260
+isret: 1
+target:
+branch: 800022ea
+isret: 0
+target:
+branch: 80002346
+isret: 0
+target:
+branch: 80002360
+isret: 1
+target:
+branch: 800023cc
+isret: 1
+target:
+branch: 80002434
+isret: 1
+target:
+branch: 8000246c
+isret: 0
+target:
+branch: 800024fa
+isret: 0
+target:
+branch: 800025ca
+isret: 0
+target:
+branch: 80002634
+isret: 0
+target:
+branch: 80002656
+isret: 0
+target:
+branch: 8000269a
+isret: 0
+target:
+branch: 800026dc
+isret: 0
+target:
+branch: 80002714
+isret: 0
+target:
+branch: 80002722
+isret: 0
+target:
+branch: 80002768
+isret: 0
+target:
+branch: 80002778
+isret: 0
+target:
+branch: 80002792
+isret: 1
+target:
+branch: 800027e0
+isret: 1
+target:
+branch: 80002826
+isret: 1
+target:
+branch: 800028da
+isret: 1
+target:
+branch: 80002992
+isret: 1
+target:
+branch: 80002a60
+isret: 1
+target:
+branch: 80002a9c
+isret: 1
+target:
+branch: 80002aea
+isret: 1
+target:
+branch: 80002b5a
+isret: 1
+target:
+branch: 80002ba4
+isret: 1
+target:
+branch: 80002c80
+isret: 1
+target:

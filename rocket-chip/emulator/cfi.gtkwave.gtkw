@@ -1,0 +1,100 @@
+[*]
+[*] GTKWave Analyzer v3.3.66 (w)1999-2015 BSI
+[*] Sun Sep 25 07:05:48 2022
+[*]
+[dumpfile] "/home/wxrqw/rocket/freedom-configsty/rocket-chip/emulator/test.vcd"
+[dumpfile_mtime] "Sun Sep 25 07:01:01 2022"
+[dumpfile_size] 1086234675
+[savefile] "/home/wxrqw/rocket/freedom-configsty/rocket-chip/emulator/cfi.gtkwave.gtkw"
+[timestart] 397669
+[size] 1856 1053
+[pos] -1 -1
+*-4.000000 397719 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] TOP.
+[treeopen] TOP.TestHarness.
+[treeopen] TOP.TestHarness.dut.
+[treeopen] TOP.TestHarness.dut.tile.
+[treeopen] TOP.TestHarness.dut.tile.accumulator.
+[treeopen] TOP.TestHarness.dut.tile.accumulator.co_core.
+[sst_width] 360
+[signals_width] 318
+[sst_expanded] 1
+[sst_vpaned_height] 317
+@28
+TOP.TestHarness.dut.tile.accumulator.reset
+TOP.TestHarness.dut.tile.accumulator.co_core.io_main_core_stall
+TOP.TestHarness.dut.tile.accumulator.co_core.init_rocc_stall
+TOP.TestHarness.dut.tile.accumulator.co_core.initial_done_r
+TOP.TestHarness.dut.tile.accumulator.co_core.rocc_done
+TOP.TestHarness.dut.tile.accumulator.co_core.maintail
+TOP.TestHarness.dut.tile.accumulator.co_core.debugout
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.funccount[63:0]
+@24
+TOP.TestHarness.dut.tile.accumulator.co_core.funcmax[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.io_info_cmd_bits_inst_funct[6:0]
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.io_pc_max[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.io_pc_min[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.decode_invalid
+@25
+TOP.TestHarness.dut.tile.accumulator.co_core.pc[7:0]
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_0[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_1[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_5[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_31[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_6[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_7[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_8[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.reg_32[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.rcache0_io_hit
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.search_key[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.SEARCH_STATE[7:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo__io_dataout[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo__io_read
+TOP.TestHarness.dut.tile.accumulator.co_core.s_pop
+TOP.TestHarness.dut.tile.accumulator.co_core.stalled_s_pop
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.stack.data_out_reg[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.s_push
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.stack.io_data_in[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.cfi_en
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo__io_empty
+TOP.TestHarness.dut.tile.accumulator.co_core.io_info_cmd_valid
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo__io_write
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.fifo__io_datain[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.tar_wfifo
+TOP.TestHarness.dut.tile.accumulator.co_core.branch_wfifo
+TOP.TestHarness.dut.tile.accumulator.co_core.cfi_wait_target
+TOP.TestHarness.dut.tile.accumulator.co_core.cfi_target_valid
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.io_info_cfi_bits_pc[39:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.io_main_core_stall
+@22
+TOP.TestHarness.dut.tile.accumulator.co_core.io_pc_max[63:0]
+TOP.TestHarness.dut.tile.accumulator.co_core.io_pc_min[63:0]
+TOP.TestHarness.dut.tile.accumulator.pc_max[63:0]
+TOP.TestHarness.dut.tile.accumulator.pc_min[63:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.co_core.io_info_cmd_valid
+TOP.TestHarness.dut.tile.accumulator.io_cmd_valid
+TOP.TestHarness.dut.tile.accumulator.io_cmd_ready
+@22
+TOP.TestHarness.dut.tile.accumulator.io_cmd_bits_inst_funct[6:0]
+@28
+TOP.TestHarness.dut.tile.accumulator.cus_sig
+TOP.TestHarness.dut.tile.accumulator.cfi_jalr_do
+TOP.TestHarness.dut.tile.accumulator.cfi_all_end_reg
+[pattern_trace] 1
+[pattern_trace] 0

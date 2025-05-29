@@ -1,0 +1,69 @@
+WReg reg17 1
+WReg reg18 1
+FIFO_INPUT 1 0
+FIFO_INPUT 2 1
+STALL 1
+WReg reg16 0
+DO_UNTIL 7 68 5 0 1
+IF reg62 0 54
+R_FIFO_WIDE 0x1f reg10 reg11 reg12 reg13 reg14 reg14 reg14 reg14
+RL reg14 0x12 reg15 1         //reg15 func rw 2bits
+BIT_AND reg14 0xffff reg19 1  //reg19 func ID
+RL reg14 0x11 reg20 1
+BIT_AND reg20 0x1 reg20 1     //reg20 func call/ret
+RL reg14 0x10 reg21 1
+BIT_AND reg21 0x1 reg21 1     //reg21 if is lib
+BIT_AND reg12 0x3 reg22  1
+RL reg12 0x2 reg12 1
+IF reg22 0 21
+ADD reg12 0x1 reg12 1    //reg12 func len
+RL reg10 0x2 reg10 1
+BIT_AND reg10 0x1fffffc reg10 1
+SL reg10 0x1 reg3 1      //reg3 rdt entry
+ADD reg19 0x0 reg1 1     //reg1 ID rds entry
+IF reg20 0 49            //if ret jump
+IF reg21 0 7             //if not lib jump
+IF reg15 0 42
+IF reg15 1 42          //if is only STORE
+WReg reg22 0             //reg22 funccount
+SL reg1 0x3 reg1 1                 //reg1 = ID*8
+DO_UNTIL 30 41 42 7 1
+LOAD reg4 reg18 reg3 2 1 cache0        //reg4 checkid (RDT)
+LOAD reg5 reg17 reg1 0 1 cache1       //reg5 rds map
+RL reg5 0x20 reg6 1                   //reg6 rds set tail
+BIT_AND reg5 0xffffffff reg7 1        //reg7 rds set head
+DO_UNTIL 35 38 39 4 1
+LOAD reg8 reg17 reg7 2 1 cache2       //reg8 rds id  
+AC reg10 reg10 reg7 reg24 reg24 reg24 reg16 1 0
+ADD reg7 0x2 reg7 1
+CMP reg6 reg7 reg20 0 0
+ADD reg3 0x2 reg3 1                 //add the rdt addr
+ADD reg22 0x1 reg22 1
+CMP reg22 reg12 reg23 0 0             //reg23 do unti
+WReg reg23 0
+WReg reg22 0
+DO_UNTIL 45 48 50 7 1
+STORE reg1 reg18 reg3 2 1 cache0
+ADD reg3 0x2 reg3 1                 //add the rdt addr
+ADD reg22 0x1 reg22 1
+CMP reg22 reg12 reg23 0 0           //reg23 do unti
+WReg reg12 1
+RL reg13 0x2 reg13 1
+BIT_AND reg13 0x1fffffc reg13 1
+SL reg13 0x1 reg3 1      //reg3 rdt entry
+DO_UNTIL 30 41 54 7 1
+R_FIFO reg0              //reg0 message
+RL reg0 0x28 reg1 1      
+BIT_AND reg1 0xffff reg1 1  //reg1 ID
+RL reg0 0x38 reg2 1         //reg2 RW
+BIT_AND reg0 0x1ffffff reg3 1  //reg3 ADDR
+RL reg3 0x2 reg3 1
+BIT_AND reg3 0x1ffffff reg3 1
+SL reg3 0x1 reg3 1      //reg3 rdt entry
+IF reg2 0 67 
+SL reg1 0x3 reg1 1                 //reg1 = ID*8
+WReg reg12 1
+WReg reg23 0
+WReg reg22 0
+DO_UNTIL 30 41 5 7 1
+STORE reg1 reg18 reg3 2 1 cache0

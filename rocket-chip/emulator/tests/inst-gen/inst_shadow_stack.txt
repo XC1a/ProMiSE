@@ -1,0 +1,16 @@
+FIFO_INPUT 0 0
+STALL 1
+DO_UNTIL 3 15 0 0 1  //**
+R_FIFO reg0
+R_FIFO reg1
+RL reg0 0x28 reg2 1    //reg2 type
+BIT_AND reg0 0xffffffffff reg0 1
+IF reg2 3 10         //** ret
+PUSH reg0
+JUMP 4
+POP reg7
+ADD reg7 0x2 reg7 1
+ADD reg7 0x2 reg8 1
+WReg reg9 2 
+C_CMP reg7 reg1 reg5 reg9
+IF reg5 0 99

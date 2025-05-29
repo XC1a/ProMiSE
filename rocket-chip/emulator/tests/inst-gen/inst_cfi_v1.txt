@@ -1,0 +1,26 @@
+WReg reg17 1
+WReg reg18 1
+FIFO_INPUT 0 0
+STALL 1
+DO_UNTIL 5 100 0 0 1  //**
+R_FIFO reg0 1
+R_FIFO reg1 0
+RL reg0 0x28 reg2 1    //reg2 type
+BIT_AND reg0 0xffffffffff reg0 1 //reg0 branch addr
+IF reg2 3 16 0 0         //** ret
+IF reg2 2 14 0 0        //** call
+IF reg2 4 14 0 0        //** normal branch jump back 
+SEARCH reg17 reg18 reg0 3 reg1 reg0 1
+JUMP 5
+PUSH reg0
+IF reg2 4 12 5 1
+POP reg32
+IF reg32 0 5 0 0
+ADD reg32 0x2 reg32 1
+ADD reg32 0x2 reg33 1
+WReg reg9 2 
+C_CMP reg32 reg1 reg5 reg9
+IF reg5 0 25 0 0
+JUMP 5
+ADD reg20 0x1 reg20 1
+JUMP 5

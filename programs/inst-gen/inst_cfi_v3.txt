@@ -1,0 +1,31 @@
+WReg reg17 1
+WReg reg18 1
+WReg reg19 0xb5004000
+WReg reg21 0x4000000
+FIFO_INPUT 0 0x0a0000000000038
+STALL 1
+R_FIFO reg0 1
+R_FIFO reg1 0
+RL reg0 0x28 reg2 1    //reg2 type
+BIT_AND reg0 0xffffffffff reg0 1 //reg0 branch addr
+IF reg2 0 29 0 0         //
+IF reg2 3 19 0 0         //** ret
+IF reg2 2 16 0 0        //** call
+IF reg2 4 16 0 0        //** normal branch jump back 
+SEARCH reg17 reg18 reg0 3 reg1 reg10 1
+JUMP 6
+STORE reg0 reg19 reg21 0 1 cache0 1
+ADD reg21 0x8 reg21 1
+IF reg2 4 14 6 1
+MINUS reg21 0x8 reg21 1
+LOAD reg32 reg19 reg21 0 1 cache0
+IF reg32 0 6 0 0
+ADD reg32 0x2 reg32 1
+ADD reg32 0x2 reg33 1
+CMP reg32 reg1 reg9 0 3
+CMP reg33 reg1 reg10 0 3
+BIT_AND reg9 reg10 reg5 0
+ADD reg20 reg5 reg20 0
+JUMP 6 
+R_FIFO reg1 0
+JUMP 6

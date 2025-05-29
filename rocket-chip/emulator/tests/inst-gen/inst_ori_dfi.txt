@@ -1,0 +1,19 @@
+R_FIFO reg0              //reg0 message
+RL reg0 0x28 reg1 1      
+BIT_AND reg1 0xffff reg1 1  //reg1 ID
+RL reg0 0x38 reg2 1         //reg2 RW
+BIT_AND reg0 0x1fffff8 reg3 1  //reg3 ADDR
+IF reg2 0 24
+SL reg1 0x3 reg1 1             //reg1 = ID*8
+LOAD reg4 reg18 reg3 0 1 cache0        //reg4 checkid (RDT)
+LOAD reg5 reg17 reg1 0 1 cache1       //reg5 rds map
+RL reg5 0x20 reg6 1                   //reg6 rds set tail
+BIT_AND reg5 0xffffffff reg7 1        //reg7 rds set head
+DO_UNTIL 26 29 30 5 1
+LOAD reg8 reg17 reg7 2 1 cache2       //reg8 rds id  
+AC reg10 reg10 reg7 reg24 reg24 reg24 reg16 1 0
+ADD reg7 0x2 reg7 1
+CMP reg6 reg7 reg9 0
+WReg reg9 0
+DO_UNTIL 12 32 12 0 1
+STORE reg1 reg18 reg3 0 1 cache0

@@ -1,0 +1,4 @@
+	add a0,a0,0
+	add a1,a1,0
+	add a2,a2,0
+	.word 0x2800008b

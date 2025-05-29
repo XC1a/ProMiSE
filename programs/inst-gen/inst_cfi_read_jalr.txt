@@ -1,0 +1,47 @@
+WReg reg17 1
+WReg reg18 1
+WReg reg31 0
+FIFO_INPUT 0 0
+STALL 1
+WReg reg16 0
+DO_UNTIL 7 100 0 0 1  //**
+SEARCH_RST
+R_FIFO reg0
+R_FIFO reg1
+RL reg0 0x28 reg2 1    //reg2 type
+BIT_AND reg0 0xffffffffff reg0 1
+IF reg2 3 7         //** ret
+IF reg2 2 7         //** call
+IF reg2 1 7        //** normal branch jump back 
+SEARCH reg17 reg18 reg0 3
+SEARCH_S reg3        //result length
+CMP reg3 0x10 reg4 1 1
+IF reg4 1 22         //**
+C_CMP reg32 reg1 reg5 reg3
+IF reg5 0 41         //**
+JUMP 41
+WReg reg6 16
+C_CMP reg32 reg1 reg5 reg6
+IF reg5 1 41
+MINUS reg3 0x10 reg3 1
+SEARCH reg17 reg18 reg0 3
+JUMP 17               //**
+PUSH reg0
+ADD reg30 0x1 reg30 1
+IF reg2 4 15
+JUMP 7
+POP reg32
+ADD reg29 0x1 reg29 1
+IF reg32 0 7
+ADD reg32 0x2 reg32 1
+ADD reg32 0x2 reg33 1
+WReg reg9 2 
+C_CMP reg32 reg1 reg5 reg9
+IF reg5 0 41
+JUMP 7
+ADD reg2 0x0 reg19 1 
+ADD reg0 0x0 reg20 1
+ADD reg1 0x0 reg21 1
+R_FIFO reg0
+R_FIFO reg1
+JUMP 44

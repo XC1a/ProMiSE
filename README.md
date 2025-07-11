@@ -6,13 +6,13 @@ This repository contains the implementation of ProMiSE based on Rocket-chip proj
 
 Xinrui Wang, Lang Feng, Zhongfeng Wang, [ProMiSE: A High-Performance Programmable Hardware Monitor for High Security Enforcement of Software Execution](https://ieeexplore.ieee.org/document/10110921), *IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems*, vol. 42, no. 11, pp. 3599-3612, Nov. 2023.
 
-We realized 5 security policies on VCU707 board (implementing to other rocket-chip suppotted FPGA boards is not difficult): 
+We realized 5 security policies on VCU707 board (implementing on other rocket-chip supported FPGA boards is not difficult): 
 
 *Shadow Stack*, *White-List*,*Control-flow Integrity(CFI)*, *Light-weight Data-Information-Flow-Track(LW-DIFT)*,*Data-flow Integrity(DFI)*
 
 Acknowledgment: We thank Xun Jiang for his contribution to setting up the basic RISC-V platform.
 
-Following sections will introduce the details of the implementation.
+The following sections will introduce the details of the implementation.
 
 Contact: Xinrui Wang (mailto:xrwang@smail.nju.edu.cn) and Lang Feng ([fenglang3@mail.sysu.edu.cn](mailto:fenglang3@mail.sysu.edu.cn)).
 
@@ -63,7 +63,7 @@ If `gnu/stubs-lp64.h` cannot be found during any compilation, copy `stubs-lp64d.
 
 We need LLVM compiler for static analysis, instrumentation, and generating RISC-V binaries that run on ProMiSE processor. There are 3 LLVM that are simultaneously tested under our repository, with versions 11.0.0, 7.0.0, and 6.0.0. There are reasons for the repository to use 3 versions of LLVM:
 
-- Version 6.0.0 is needed by static analysis tool, which is the modified SVF. It needs and only supports LLVM 6.0.0.
+- Version 6.0.0 is needed by the static analysis tool, which is the modified SVF. It needs and only supports LLVM 6.0.0.
 - Version 7.0.0 is needed for instrumentation, because our instrumentation tool needs and only supports the human-readable intermediate representation (IR) code before LLVM version 8.0.1. Besides, Version 6.0.0 does not support RISC-V toolchain, so finally LLVM 7.0.0 is selected.
 - LLVM 11.0.0 is needed to compiling and linking the final binaries, because LLVM 7.0.0 can generate RISC-V IR, but does not support generating the final binaries well.
 
@@ -91,7 +91,7 @@ $ cmake -G Unix \
 
 #### 3.2.2. Toolchain LLVM7
 
-This toolchain is used for generate IR. We need LLVM 7.0.0 for this. The way of build Toolchain LLVM7 is the same as LLVM11.
+This toolchain is used to generate IR. We need LLVM 7.0.0 for this. The way of building Toolchain LLVM7 is the same as LLVM11.
 
 #### 3.2.3. Toolchain LLVM6
 
@@ -131,7 +131,7 @@ The security monitor is implemented inside RoCC of the RISC-V core, with most of
 
 ## 5.1 How to write monitor programs (step 2 of the paper)?
 
-The first step is enter the folder `programs/inst-gen`, then refer to the paper and `genCoInst.py`. Then, write the monitor program into `inst.txt` (you can just follow other example programs). After that, run the python shell and you can get the hexadecimal value of the programs in file `inst_bin.txt`. Note this step has already merged in to the flow in Section 5.2.
+The first step is to enter the folder `programs/inst-gen`, then refer to the paper and `genCoInst.py`. Then, write the monitor program into `inst.txt` (you can just follow other example programs). After that, run the python shell and you can get the hexadecimal value of the programs in the file `inst_bin.txt`. Note this step has already merged into the flow in Section 5.2.
 
 Therefore, if the user wants to add some new monitor instructions or modify the old, (1) modify the `genCoInst.py` (2) modify`./rocketchip/src/main/scala/tile/LazyRoCC.scala` to support the new function.
 
@@ -139,11 +139,11 @@ Therefore, if the user wants to add some new monitor instructions or modify the 
 
 ### 5.2.1 Basic flow
 
-**NOTE** : Firstly, ProMiSE supports to monitor the program with or without instrumentation. For instance, CFI does not require the instrumentation. For experiment, we simply instrument a function at the beggining of the program to initialize (1) monitor program to monitor hardware and (2) the CFG/DFG (stored as the security table, which will be automatically generated in the shell `build.sh`). In future, this part can be moved to operation system.
+**NOTE**: Firstly, ProMiSE supports monitoring the program with or without instrumentation. For instance, CFI does not require the instrumentation. For the experiment, we simply instrument a function at the beginning of the program to initialize (1) monitor program to monitor hardware and (2) the CFG/DFG (stored as the security table, which will be automatically generated in the shell `build.sh`). In the future, this part can be moved to the operating system.
 
 You can see all the details of the initialization in `dfi_inst.cc`.
 
-**This part starts with `build.sh`, before using it, modifying the path in this file: `YOUR_PATH` and `SPEC_PATH`.** `YOUR_PATH` refers this repository's path and `SPEC_PATH` refers to the SPEC CPU 2006's path.
+**This part starts with `build.sh`, before using it, modify the path in this file: `YOUR_PATH` and `SPEC_PATH`.** `YOUR_PATH` refers to this repository's path, and `SPEC_PATH` refers to the SPEC CPU 2006's path.
 
 There are some ways to use `build.sh`:
 
@@ -151,17 +151,17 @@ There are some ways to use `build.sh`:
 $ ./build.sh [casename] [workname] -oriexit/-dfi/-cfi/-whlist/-sstack/-lwDIFT
 ```
 
-Note the `-oriexit` means there will not be any security policy enabled. The options of the `casename` could be programs of the SPEC benchmark. After running this shell, the program execution files and `inst_bin.txt` will be automatically generated, and CFG/DFG (only use -cfi/-dfi) will be also generated.
+Note that the `-oriexit` means there will not be any security policy enabled. The options of the `casename` could be programs of the SPEC benchmark. After running this shell, the program execution files and `inst_bin.txt` will be automatically generated, and CFG/DFG (only use -cfi/-dfi) will also be generated.
 
-If you want to instrument ripe and other security cases, you can run such as `build_ripe.sh`,`build_ripe.sh`,`build_ripe.sh`,`build_ripe.sh`,`build_ripe_riscv.sh`.
+If you want to instrument ripe and other security cases, you can run scripts such as `build_ripe.sh`,`build_ripe.sh`,`build_ripe.sh`,`build_ripe.sh`,`build_ripe_riscv.sh`.
 
 ## 5.2.2 How to quickly get benchmark
 
-You can direcly run the shell `programs/build_all_{option}`, the option can be `ori` `dfi` `cfi` `sstack` `whlist` `lwDIFT`. Then you can get all the benchmark execution files. (**NOTE:** `cfitable/dfi_rds_file` and `inst_bin.txt` needs the user manually handle, i.e. you need manually copy them to the right folder.)
+You can directly run the shell `programs/build_all_{option}`, the option can be `ori` `dfi` `cfi` `sstack` `whlist` `lwDIFT`. Then you can get all the benchmark execution files. (**NOTE:** `cfitable/dfi_rds_file` and `inst_bin.txt` need the user to manually handle, i.e., you needto  manually copy them to the right folder.)
 
 # 6. How to simulate C programs?
 
-Simulation only supports limited system call. For example, `mmap` is not supported in C programs. If you want to inspect the waveform, please install `gtkwave`.There are some steps to simulate:
+Simulation only supports limited system calls. For example, `mmap` is not supported in C programs. If you want to inspect the waveform, please install `gtkwave`.There are some steps to simulate:
 
 1. Enter `rocket-chip/emulator`, export the environment variable in Section 4.1. Then:
 
@@ -183,14 +183,14 @@ make CONFIG=RoccExampleConfig -j4
 ./emulator-freechips.rocketchip.system-RoccExampleConfig-debug +max-cycles=100000000 +verbose --vcd=test.vcd ./tests/test.riscv### 7.1. Software Preparation
 ```
 
-**NOTE**  (1) If you get only java runtime errors when compiling the emulator make, check the Chisel code, and be sure to use all variables after they are defined! (2) The simulation of the C program, can not malloc too large a memory space such as a [1024 * 64], will cause inexplicable errors.
+**NOTE**  (1) If you get only java runtime errors when compiling the emulator make, check the Chisel code, and be sure to use all variables after they are defined! (2) The simulation of the C program, can not malloc too large a memory space, such as a [1024 * 64], will cause inexplicable errors.
 
 # 7. Hardware Implementation
 
-Following to Section 4 to generate the bitstream, and download into the FPGA. After this, insert the SD card with Linux system into the FPGA board, and reboot the system. You should be able to see the system booting.
+Following Section 4 to generate the bitstream, and download it into the FPGA. After this, insert the SD card with Linux system into the FPGA board, and reboot the system. You should be able to see the system booting.
 
-Following Section 5 to generated **(1) program execution files** + **(2) inst_bin.txt** + **(3) cfitable(for CFI)/dfi_rds_file (for DFI) + 4. rdebug/rdebug (used to read the debug information)**. Put the files such as binaries you want inside the Linux system’s root folders (following Section 3.3, if the file sizes are not large). Then, compile Linux system and load it inside an SD card.
+Following Section 5 to generated **(1) program execution files** + **(2) inst_bin.txt** + **(3) cfitable(for CFI)/dfi_rds_file (for DFI) + 4. rdebug/rdebug (used to read the debug information)**. Put the files, such as binaries you want, inside the Linux system’s root folders (following Section 3.3, if the file sizes are not large). Then, compile Linux system and load it inside an SD card.
 
 If the files you want to run are large, please use another SD card to store them, and mount this SD card after the Linux system completes the boot (so you need to prepare two SD cards, one for linux system, the other for programs).
 
-Everytime you execute the program, you can execute `rdebug` to read the debug information.
+Every time you execute the program, you can execute `rdebug` to read the debug information.
